@@ -35,27 +35,6 @@ class Client(object):
         self.gateway = gateway
         self.url_base = url_base
 
-    def get_controllable_loads(self):
-        url = self.url_base + "hes-gateway/terminal/selectTerGatewayControlLoadByGatewayId"
-        params = { "id": self.gateway, "lang": "en_US" }
-        headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
-        return res.json()
-
-    def get_accessory_list(self):
-        url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
-        params = { "gatewayId": self.gateway, "lang": "en_US" }
-        headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
-        return res.json()
-
-    def get_equipment_list(self):
-        url = self.url_base + "hes-gateway/manage/getEquipmentList"
-        params = { "gatewayId": self.gateway, "lang": "en_US" }
-        headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
-        return res.json()
-
     def _get_smart_switch_state(self):
         url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
@@ -105,6 +84,26 @@ class Client(object):
                     ))
 
 
+class UnknownMethodsClient(Client):
+    """A client that also implements some methods that don't obviously work, for research purposes"""
 
+    def get_controllable_loads(self):
+        url = self.url_base + "hes-gateway/terminal/selectTerGatewayControlLoadByGatewayId"
+        params = { "id": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
 
+    def get_accessory_list(self):
+        url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
 
+    def get_equipment_list(self):
+        url = self.url_base + "hes-gateway/manage/getEquipmentList"
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
