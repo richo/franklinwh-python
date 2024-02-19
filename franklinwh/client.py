@@ -35,7 +35,49 @@ class Client(object):
         self.gateway = gateway
         self.url_base = url_base
 
+    def get_controllable_loads(self):
+        url = self.url_base + "hes-gateway/terminal/selectTerGatewayControlLoadByGatewayId"
+        params = { "id": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
+
+    def get_accessory_list(self):
+        url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
+
+    def get_equipment_list(self):
+        url = self.url_base + "hes-gateway/manage/getEquipmentList"
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
+
+    def _get_smart_switch_state(self):
+        url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        headers = { "loginToken": self.token }
+        res = requests.get(url, params=params, headers=headers)
+        return res.json()
+
+
+    def set_smart_switch_state(self):
+        pass
+        # TODO(richo)
+        # Set all of these to 1.
+        # Sw1Mode
+        # Sw2Mode
+        # Sw1ProLoad
+        # Sw2ProLoad
+
     def get_stats(self) -> dict:
+        """Get current statistics for the FHP.
+
+        This includes instantaneous measurements for current power, as well as totals for today (in local time)
+        """
         url = self.url_base + "hes-gateway/terminal/selectIotUserRuntimeDataLog"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }

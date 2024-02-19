@@ -8,6 +8,10 @@ def main(argv):
 
     client = Client(token, gateway)
     pprint.pprint(client.get_stats())
+    # pprint.pprint(client.get_controllable_loads())
+    # pprint.pprint(client.get_accessory_list())
+    # pprint.pprint(client.get_equipment_list())
+    # pprint.pprint(client._get_smart_switch_state())
 
 
 if __name__ == "__main__":
