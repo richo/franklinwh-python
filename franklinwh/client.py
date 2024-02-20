@@ -1,4 +1,5 @@
 import requests
+import hashlib
 from dataclasses import dataclass
 
 DEFAULT_URL_BASE = "https://energy.franklinwh.com/";
@@ -35,6 +36,18 @@ class Client(object):
         self.gateway = gateway
         self.url_base = url_base
 
+    def login(self, username: str, password: str):
+        url = self.url_base + "hes-gateway/manage/appUserOrInstallerLogin"
+        hash = hashlib.md5(bytes(password, "ascii")).hexdigest()
+        form = {
+                "account": username,
+                "password": hash,
+                "lang": "en_US",
+                "type": 1,
+                }
+        res = requests.get(url, data=form)
+        return res.json()
+
     def _get_smart_switch_state(self):
         url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
@@ -42,8 +55,30 @@ class Client(object):
         res = requests.get(url, params=params, headers=headers)
         return res.json()
 
+    def get_smart_switch_state(self):
+        # TODO(richo) This API is super in flux, both because of how vague the
+        # underlying API is and also trying to figure out what to do with
+        # inconsistency.
+        data = self._get_smart_switch_state()
+        def state(swmode, swproload):
+            if swmode == 1 and swproload == 1:
+                return True
+            elif swmode == 0 and swproload == 0:
+                return False
+            print("Not sure we understand this state: {}, {}".format(swmode, swproload))
+            return None
+
+        result = data["result"]
+        sw1 = state(result["Sw1Mode"], result["Sw1ProLoad"])
+        sw2 = state(result["Sw2Mode"], result["Sw2ProLoad"])
+        sw3 = state(result["Sw3Mode"], result["Sw3ProLoad"])
+
+        return [sw1, sw2, sw3]
+
+
 
     def set_smart_switch_state(self):
+
         pass
         # TODO(richo)
         # Set all of these to 1.
