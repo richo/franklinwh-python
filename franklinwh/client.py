@@ -1,6 +1,7 @@
 import requests
 import hashlib
 from dataclasses import dataclass
+import typing
 
 DEFAULT_URL_BASE = "https://energy.franklinwh.com/";
 
@@ -55,6 +56,17 @@ class Client(object):
         res = requests.get(url, params=params, headers=headers)
         return res.json()
 
+    def _set_smart_switch_state(self):
+        """This method uses the same payload format as _get_smart_switch_state returns.
+
+        Who absolutely knows what happens if you tangle stuff up in here, so in
+        the spirit of hoping for the best the only way I'm willing to attempt
+        this is by manipulating that blob and sending it back, hopefully
+        quickly enough that nothing else can race it
+
+
+        """
+
     def get_smart_switch_state(self):
         # TODO(richo) This API is super in flux, both because of how vague the
         # underlying API is and also trying to figure out what to do with
@@ -75,17 +87,30 @@ class Client(object):
 
         return [sw1, sw2, sw3]
 
+    def set_smart_switch_state(self, state: (typing.Optional(bool), typing.Optional(bool), typing.Optional(bool))):
+        """Set the state of the smart circuits
+
+        Setting a value in the state tuple to True will turn on that circuit,
+        setting to False will turn it off. Setting to None will make it
+        unchanged.
+        """
 
 
-    def set_smart_switch_state(self):
+        initial = self.get_smart_switch_state()
+        payload = initial["result"]
 
-        pass
-        # TODO(richo)
-        # Set all of these to 1.
-        # Sw1Mode
-        # Sw2Mode
-        # Sw1ProLoad
-        # Sw2ProLoad
+        def set_value(keys, value):
+            for k in keys:
+                payload[k] = value
+
+
+        for i, ks in enumerate(("Sw1Mode", "Sw1ProLoad"), ("Sw2Mode", "Sw2ProLoad"), ("Sw3Mode", "Sw3ProLoad")):
+            if state[i] == True:
+                set_value(ks, 1)
+            elif: state[i] == False:
+                set_value(ks, 0)
+
+        self._set_smart_switch_state(payload)
 
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.

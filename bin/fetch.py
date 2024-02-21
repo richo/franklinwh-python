@@ -11,7 +11,7 @@ def main(argv):
     # pprint.pprint(client.get_controllable_loads())
     # pprint.pprint(client.get_accessory_list())
     # pprint.pprint(client.get_equipment_list())
-    pprint.pprint(client.get_smart_switch_state())
+    pprint.pprint(client._get_smart_switch_state())
 
 
 if __name__ == "__main__":
