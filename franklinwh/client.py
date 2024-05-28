@@ -33,7 +33,7 @@ class Stats:
 
 class Client(object):
     def __init__(self, token: str, gateway: str, url_base: str = DEFAULT_URL_BASE):
-        self.token = "APP_ACCOUNT:" + token
+        self.token = token
         self.gateway = gateway
         self.url_base = url_base
 

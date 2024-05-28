@@ -30,7 +30,7 @@ if __name__ == "__main__":
         sys.exit(1)
     token = _login(sys.argv[1], sys.argv[2])
     print("Your token is")
-    print("  {}".format(token.replace("APP_ACCOUNT:", "")))
+    print("  {}".format(token))
     print("Use this in your hass config")
 
 
