@@ -87,7 +87,7 @@ class Client(object):
 
         return [sw1, sw2, sw3]
 
-    def set_smart_switch_state(self, state: (typing.Optional(bool), typing.Optional(bool), typing.Optional(bool))):
+    def set_smart_switch_state(self, state: (typing.Optional[bool], typing.Optional[bool], typing.Optional[bool])):
         """Set the state of the smart circuits
 
         Setting a value in the state tuple to True will turn on that circuit,
