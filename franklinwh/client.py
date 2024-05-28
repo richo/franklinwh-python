@@ -107,7 +107,7 @@ class Client(object):
         for i, ks in enumerate(("Sw1Mode", "Sw1ProLoad"), ("Sw2Mode", "Sw2ProLoad"), ("Sw3Mode", "Sw3ProLoad")):
             if state[i] == True:
                 set_value(ks, 1)
-            elif: state[i] == False:
+            elif state[i] == False:
                 set_value(ks, 0)
 
         self._set_smart_switch_state(payload)
