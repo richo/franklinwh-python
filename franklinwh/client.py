@@ -69,10 +69,10 @@ class TokenFetcher(object):
         json = res.json()
 
         if json['code'] == 401:
-            raise InvalidCredentialsException
+            raise InvalidCredentialsException(json['message'])
 
         if json['code'] == 400:
-            raise AccountLockedException
+            raise AccountLockedException(json['message'])
 
         return json['result']['token']
 
