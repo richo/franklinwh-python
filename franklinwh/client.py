@@ -3,7 +3,8 @@ import hashlib
 from dataclasses import dataclass
 import typing
 
-DEFAULT_URL_BASE = "https://energy.franklinwh.com/";
+from .mqtt import FranklinMqtt
+from . import DEFAULT_URL_BASE
 
 @dataclass
 class Current:
@@ -31,14 +32,21 @@ class Stats:
     totals: Totals
 
 
-class Client(object):
-    def __init__(self, token: str, gateway: str, url_base: str = DEFAULT_URL_BASE):
-        self.token = token
-        self.gateway = gateway
-        self.url_base = url_base
+class TokenExpiredException(BaseException):
+    """raised when the token has expired to signal upstream that you need to create a new client or inject a new token"""
+    pass
 
-    def login(self, username: str, password: str):
-        url = self.url_base + "hes-gateway/manage/appUserOrInstallerLogin"
+class TokenFetcher(object):
+    def __init__(self, username: str, password: str):
+        self.username = username
+        self.password = password
+
+    def get_token(self):
+        return TokenFetcher.login(self.username, self.password)
+
+    @staticmethod
+    def login(username: str, password: str):
+        url = DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         hash = hashlib.md5(bytes(password, "ascii")).hexdigest()
         form = {
                 "account": username,
@@ -46,8 +54,25 @@ class Client(object):
                 "lang": "en_US",
                 "type": 1,
                 }
-        res = requests.get(url, data=form)
-        return res.json()
+        res = requests.post(url, data=form)
+        return res.json()['result']['token']
+
+
+class Client(object):
+    def __init__(self, fetcher: TokenFetcher, gateway: str, url_base: str = DEFAULT_URL_BASE):
+        self.fetcher = fetcher
+        self.gateway = gateway
+        self.url_base = url_base
+        self.token = self.refresh_token()
+
+    def refresh_token(self) -> str:
+        return self.fetcher.get_token()
+
+
+    def mqtt_client(self):
+        """Creates an MqttClient"""
+        return FranklinMqtt(self.gateway, lambda: self.token)
+
 
     def _get_smart_switch_state(self):
         url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
@@ -63,9 +88,8 @@ class Client(object):
         the spirit of hoping for the best the only way I'm willing to attempt
         this is by manipulating that blob and sending it back, hopefully
         quickly enough that nothing else can race it
-
-
         """
+
 
     def get_smart_switch_state(self):
         # TODO(richo) This API is super in flux, both because of how vague the
