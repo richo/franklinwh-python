@@ -31,7 +31,6 @@ class Totals:
     generator: float
     home_use: float
 
-
 @dataclass
 class Stats:
     current: Current
@@ -158,17 +157,16 @@ class Client(object):
 
         self._set_smart_switch_state(payload)
 
+    def _status(self):
+        payload = self._build_payload(203, {"opt":1, "refreshData":1})
+        return self._mqtt_send(payload)
+
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        url = self.url_base + "hes-gateway/terminal/selectIotUserRuntimeDataLog"
-        params = { "gatewayId": self.gateway, "lang": "en_US" }
-        headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
-        json = res.json()
-        data = json["result"]["dataArea"]
+        data = self._status()
 
         return Stats(
                 Current(
@@ -193,9 +191,6 @@ class Client(object):
         self.snno += 1
         return self.snno
 
-    def get_status(self):
-        payload = self._build_payload(203, {"opt":1, "refreshData":1})
-        return self._mqtt_send(payload)
 
     def _build_payload(self, ty, data):
         blob = json.dumps(data, separators=(',', ':')).encode('utf-8')
