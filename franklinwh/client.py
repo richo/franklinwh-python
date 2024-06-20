@@ -1,10 +1,16 @@
+import json
+import zlib
+import time
 import requests
 import hashlib
 from dataclasses import dataclass
 import typing
 
-from .mqtt import FranklinMqtt
+
 from . import DEFAULT_URL_BASE
+
+def to_hex(inp):
+    return f"{inp:08X}"
 
 @dataclass
 class Current:
@@ -58,21 +64,37 @@ class TokenFetcher(object):
         return res.json()['result']['token']
 
 
+def retry(func, fltr, refresh_func):
+    """Tries calling func, and if filter fails it calls refresh func then tries again"""
+    res = func()
+    if fltr(res):
+        return res
+    refresh_func()
+    return func()
+
+
 class Client(object):
     def __init__(self, fetcher: TokenFetcher, gateway: str, url_base: str = DEFAULT_URL_BASE):
         self.fetcher = fetcher
         self.gateway = gateway
         self.url_base = url_base
-        self.token = self.refresh_token()
+        self.refresh_token()
+        self.snno = 0
 
-    def refresh_token(self) -> str:
-        return self.fetcher.get_token()
+    def _post(self, url, payload):
+        def __post():
+            return requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
+        return retry(__post, lambda json: json['code'] != 401, self.refresh_token)
+
+    def _get(self, url):
+        params = { "gatewayId": self.gateway, "lang": "en_US" }
+        def __get():
+            return requests.get(url, params=params, headers={ "loginToken": self.token }).json()
+        return retry(__get, lambda json: json['code'] != 401, self.refresh_token)
 
 
-    def mqtt_client(self):
-        """Creates an MqttClient"""
-        return FranklinMqtt(self.gateway, lambda: self.token)
-
+    def refresh_token(self):
+        self.token = self.fetcher.get_token()
 
     def _get_smart_switch_state(self):
         url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
@@ -166,6 +188,32 @@ class Client(object):
                     data["kwh_gen"],
                     data["kwh_load"]
                     ))
+
+    def next_snno(self):
+        self.snno += 1
+        return self.snno
+
+    def get_status(self):
+        payload = self._build_payload(203, {"opt":1, "refreshData":1})
+        return self._mqtt_send(payload)
+
+    def _build_payload(self, ty, data):
+        blob = json.dumps(data, separators=(',', ':')).encode('utf-8')
+        # crc = to_hex(zlib.crc32(blob.encode("ascii")))
+        crc = to_hex(zlib.crc32(blob))
+        l = len(blob)
+        ts = int(time.time())
+
+        temp = json.dumps({"lang":"EN_US", "cmdType":ty,"equipNo": self.gateway,"type":0,"timeStamp":ts,"snno":self.next_snno(),"len":l,"crc":crc,"dataArea":"DATA"})
+        # We do it this way because without a canonical way to generate JSON we can't risk reordering breaking the CRC.
+        return temp.replace('"DATA"', blob.decode('utf-8'))
+
+    def _mqtt_send(self, payload):
+        url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
+
+        res = self._post(url, payload)
+        assert(res['code'] == 200)
+        return res
 
 
 class UnknownMethodsClient(Client):
