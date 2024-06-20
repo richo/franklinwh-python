@@ -159,7 +159,8 @@ class Client(object):
 
     def _status(self):
         payload = self._build_payload(203, {"opt":1, "refreshData":1})
-        return self._mqtt_send(payload)
+        data = self._mqtt_send(payload)['result']['dataArea']
+        return json.loads(data)
 
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.
