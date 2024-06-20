@@ -109,13 +109,6 @@ class Client(object):
     def refresh_token(self):
         self.token = self.fetcher.get_token()
 
-    def _get_smart_switch_state(self):
-        url = self.url_base + "hes-gateway/manage/getCommunicationOptimization"
-        params = { "gatewayId": self.gateway, "lang": "en_US" }
-        headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
-        return res.json()
-
     def _set_smart_switch_state(self):
         """This method uses the same payload format as _get_smart_switch_state returns.
 
@@ -124,27 +117,16 @@ class Client(object):
         this is by manipulating that blob and sending it back, hopefully
         quickly enough that nothing else can race it
         """
+        pass
 
 
     def get_smart_switch_state(self):
         # TODO(richo) This API is super in flux, both because of how vague the
         # underlying API is and also trying to figure out what to do with
         # inconsistency.
-        data = self._get_smart_switch_state()
-        def state(swmode, swproload):
-            if swmode == 1 and swproload == 1:
-                return True
-            elif swmode == 0 and swproload == 0:
-                return False
-            print("Not sure we understand this state: {}, {}".format(swmode, swproload))
-            return None
-
-        result = data["result"]
-        sw1 = state(result["Sw1Mode"], result["Sw1ProLoad"])
-        sw2 = state(result["Sw2Mode"], result["Sw2ProLoad"])
-        sw3 = state(result["Sw3Mode"], result["Sw3ProLoad"])
-
-        return [sw1, sw2, sw3]
+        status = self._status()
+        switches = map(lambda x: x == 1, status["pro_load"])
+        return tuple(switches)
 
     def set_smart_switch_state(self, state: (typing.Optional[bool], typing.Optional[bool], typing.Optional[bool])):
         """Set the state of the smart circuits
