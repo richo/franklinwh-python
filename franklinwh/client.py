@@ -41,6 +41,12 @@ class TokenExpiredException(BaseException):
     """raised when the token has expired to signal upstream that you need to create a new client or inject a new token"""
     pass
 
+class AccountLockedException(BaseException):
+    pass
+
+class InvalidCredentialsException(BaseException):
+    pass
+
 class TokenFetcher(object):
     def __init__(self, username: str, password: str):
         self.username = username
@@ -60,7 +66,15 @@ class TokenFetcher(object):
                 "type": 1,
                 }
         res = requests.post(url, data=form)
-        return res.json()['result']['token']
+        json = res.json()
+
+        if json['code'] == 401:
+            raise InvalidCredentialsException
+
+        if json['code'] == 400:
+            raise AccountLockedException
+
+        return json['result']['token']
 
 
 def retry(func, fltr, refresh_func):
