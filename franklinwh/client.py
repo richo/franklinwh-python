@@ -47,6 +47,9 @@ class AccountLockedException(BaseException):
 class InvalidCredentialsException(BaseException):
     pass
 
+class DeviceTimeoutException(BaseException):
+    pass
+
 class TokenFetcher(object):
     def __init__(self, username: str, password: str):
         self.username = username
@@ -158,6 +161,12 @@ class Client(object):
         data = self._mqtt_send(payload)['result']['dataArea']
         return json.loads(data)
 
+    # Sends a 311 which appears to be a more specific switch command
+    def _switch_status(self):
+        payload = self._build_payload(311, {"opt":0, "order": self.gateway})
+        data = self._mqtt_send(payload)['result']['dataArea']
+        return json.loads(data)
+
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.
 
@@ -204,7 +213,9 @@ class Client(object):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
 
         res = self._post(url, payload)
-        assert(res['code'] == 200)
+        if res['code'] == 102:
+            raise DeviceTimeoutException(res['message'])
+        assert res['code'] == 200, f"{res['code']}: {res['message']}"
         return res
 
 
