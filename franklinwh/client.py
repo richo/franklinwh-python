@@ -103,6 +103,13 @@ class Client(object):
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
+    def _post_form(self, url, payload):
+        def __post():
+            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded" }, data=payload).json()
+            print(res)
+            return res
+        return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
+
     def _get(self, url):
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         def __get():
@@ -176,6 +183,36 @@ class Client(object):
         payload = self._build_payload(311, {"opt":0, "order": self.gateway})
         data = self._mqtt_send(payload)['result']['dataArea']
         return json.loads(data)
+
+    def set_mode(self):
+        modes = {
+                "time of use": 1,
+                "emergency backup": 2,
+                "self consumption": 3,
+                }
+        # POST to https://energy.franklinwh.com/hes-gateway/terminal/tou/updateTouMode
+        # Time of use:
+        # currendId=9322&gatewayId=___&lang=EN_US&oldIndex=3&soc=15&stromEn=1&workMode=1
+
+        # Emergency Backup:
+        # currendId=9324&gatewayId=___&lang=EN_US&oldIndex=1&soc=100&stromEn=1&workMode=3
+
+
+        # Self consumption
+        # currendId=9323&gatewayId=___&lang=EN_US&oldIndex=2&soc=20&stromEn=1&workMode=2
+        url = DEFAULT_URL_BASE + "hes-gateway/terminal/tou/updateTouMode"
+        payload = {
+                "currendId": 9323, # nfi what this is
+                "gatewayId": self.gateway,
+                "lang": "EN_US",
+                "oldIndex": 1,
+                "soc": 100,
+                "stromEn": 1,
+                "workmode": 3,
+                }
+        res = self._post_form(url, payload)
+        print(res)
+
 
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.
