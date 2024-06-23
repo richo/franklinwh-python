@@ -17,3 +17,9 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/richo/franklinwh-python"
 Issues = "https://github.com/richo/franklinwh-python/issues"
+
+[tool.hatch.build]
+exclude = [
+  "/env",
+  ".*",
+]
