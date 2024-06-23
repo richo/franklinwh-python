@@ -99,34 +99,26 @@ class Client(object):
 
     def _post(self, url, payload):
         def __post():
-            return requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
-        return retry(__post, lambda json: json['code'] != 401, self.refresh_token)
+            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
+            return res
+        return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
     def _get(self, url):
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         def __get():
             return requests.get(url, params=params, headers={ "loginToken": self.token }).json()
-        return retry(__get, lambda json: json['code'] != 401, self.refresh_token)
+        return retry(__get, lambda j: j['code'] != 401, self.refresh_token)
 
 
     def refresh_token(self):
         self.token = self.fetcher.get_token()
 
-    def _set_smart_switch_state(self):
-        """This method uses the same payload format as _get_smart_switch_state returns.
-
-        Who absolutely knows what happens if you tangle stuff up in here, so in
-        the spirit of hoping for the best the only way I'm willing to attempt
-        this is by manipulating that blob and sending it back, hopefully
-        quickly enough that nothing else can race it
-        """
-        pass
-
-
     def get_smart_switch_state(self):
         # TODO(richo) This API is super in flux, both because of how vague the
         # underlying API is and also trying to figure out what to do with
         # inconsistency.
+        # Whether this should use the _switch_status() API is super unclear.
+        # Maybe I will reach out to FranklinWH once I have published.
         status = self._status()
         switches = map(lambda x: x == 1, status["pro_load"])
         return tuple(switches)
@@ -139,23 +131,41 @@ class Client(object):
         unchanged.
         """
 
+        payload = self._switch_status()
+        payload["opt"] = 1
+        payload.pop('modeChoose')
+        payload.pop('result')
 
-        initial = self.get_smart_switch_state()
-        payload = initial["result"]
+        if payload["SwMerge"] == 1:
+            if state[0] != state[1]:
+                raise RuntimeError("Smart switches 1 and 2 are merged! Setting them to different values could do bad things to your house. Aborting.")
 
         def set_value(keys, value):
             for k in keys:
                 payload[k] = value
 
 
-        for i, ks in enumerate(("Sw1Mode", "Sw1ProLoad"), ("Sw2Mode", "Sw2ProLoad"), ("Sw3Mode", "Sw3ProLoad")):
-            if state[i] == True:
-                set_value(ks, 1)
-            elif state[i] == False:
-                set_value(ks, 0)
+        for i in range(3):
+            sw = i + 1
+            mode = f"Sw{sw}Mode"
+            msg_type = f"Sw{sw}MsgType"
+            pro_load = f"Sw{sw}ProLoad"
 
-        self._set_smart_switch_state(payload)
+            if state[i] is not None:
+                payload[msg_type] = 1
+                if state[i] == True:
+                    payload[mode] = 1
+                    payload[pro_load] = 0
+                elif state[i] == False:
+                    payload[mode] = 0
+                    payload[pro_load] = 1
 
+        print(payload)
+        wire_payload = self._build_payload(311, payload)
+        data = self._mqtt_send(wire_payload)['result']['dataArea']
+        return json.loads(data)
+
+    # Sends a 203 which is a high level status
     def _status(self):
         payload = self._build_payload(203, {"opt":1, "refreshData":1})
         data = self._mqtt_send(payload)['result']['dataArea']
