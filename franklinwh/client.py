@@ -37,6 +37,47 @@ class Stats:
     totals: Totals
 
 
+class Mode(object):
+    @staticmethod
+    def time_of_use(soc=20):
+        mode = Mode(soc)
+        mode.currendId = 9322
+        mode.workMode = 1
+        return mode
+
+    @staticmethod
+    def emergency_backup(soc=100):
+        mode = Mode(soc)
+        mode.currendId = 9324
+        mode.workMode = 3
+        return mode
+
+    @staticmethod
+    def self_consumption(soc=20):
+        mode = Mode(soc)
+        mode.currendId = 9323
+        mode.workMode = 2
+        return mode
+
+    def __init__(self, soc):
+        self.soc = soc
+        self.currendId = None
+        self.workMode = None
+
+    def payload(self, gateway):
+        return {
+                "currendId": str(self.currendId),
+                "gatewayId": gateway,
+                "lang": "EN_US",
+                "oldIndex": "1", # Who knows if this matters
+                "soc": str(self.soc),
+                "stromEn": "1",
+                "workMode": str(self.workMode),
+                }
+
+
+
+
 class TokenExpiredException(BaseException):
     """raised when the token has expired to signal upstream that you need to create a new client or inject a new token"""
     pass
@@ -105,8 +146,7 @@ class Client(object):
 
     def _post_form(self, url, payload):
         def __post():
-            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded" }, data=payload).json()
-            print(res)
+            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded", "optsource": "3" }, data=payload).json()
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
@@ -167,7 +207,6 @@ class Client(object):
                     payload[mode] = 0
                     payload[pro_load] = 1
 
-        print(payload)
         wire_payload = self._build_payload(311, payload)
         data = self._mqtt_send(wire_payload)['result']['dataArea']
         return json.loads(data)
@@ -184,34 +223,18 @@ class Client(object):
         data = self._mqtt_send(payload)['result']['dataArea']
         return json.loads(data)
 
-    def set_mode(self):
-        modes = {
-                "time of use": 1,
-                "emergency backup": 2,
-                "self consumption": 3,
-                }
-        # POST to https://energy.franklinwh.com/hes-gateway/terminal/tou/updateTouMode
+    def set_mode(self, mode):
         # Time of use:
         # currendId=9322&gatewayId=___&lang=EN_US&oldIndex=3&soc=15&stromEn=1&workMode=1
 
         # Emergency Backup:
         # currendId=9324&gatewayId=___&lang=EN_US&oldIndex=1&soc=100&stromEn=1&workMode=3
 
-
         # Self consumption
         # currendId=9323&gatewayId=___&lang=EN_US&oldIndex=2&soc=20&stromEn=1&workMode=2
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/tou/updateTouMode"
-        payload = {
-                "currendId": 9323, # nfi what this is
-                "gatewayId": self.gateway,
-                "lang": "EN_US",
-                "oldIndex": 1,
-                "soc": 100,
-                "stromEn": 1,
-                "workmode": 3,
-                }
+        payload = mode.payload(self.gateway)
         res = self._post_form(url, payload)
-        print(res)
 
 
     def get_stats(self) -> dict:
