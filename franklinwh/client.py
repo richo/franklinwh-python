@@ -36,6 +36,15 @@ class Stats:
     current: Current
     totals: Totals
 
+MODE_TIME_OF_USE = "time_of_use"
+MODE_SELF_CONSUMPTION = "self_consumption"
+MODE_EMERGENCY_BACKUP = "emergency_backup"
+
+MODE_MAP = {
+        9322: MODE_TIME_OF_USE,
+        9323: MODE_SELF_CONSUMPTION,
+        9324: MODE_EMERGENCY_BACKUP,
+        }
 
 class Mode(object):
     @staticmethod
@@ -236,6 +245,16 @@ class Client(object):
         payload = mode.payload(self.gateway)
         res = self._post_form(url, payload)
 
+    def get_mode(self):
+        status = self._switch_status()
+        # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
+        mode_name = MODE_MAP[status["runingMode"]]
+        if mode_name == MODE_TIME_OF_USE:
+            return (mode_name, status["touMinSoc"])
+        elif mode_name == MODE_SELF_CONSUMPTION:
+            return (mode_name, status["selfMinSoc"])
+        elif mode_name == MODE_EMERGENCY_BACKUP:
+            return (mode_name, status["backupMaxSoc"])
 
     def get_stats(self) -> dict:
         """Get current statistics for the FHP.
