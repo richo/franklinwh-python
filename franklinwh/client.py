@@ -7,7 +7,8 @@ from dataclasses import dataclass
 import typing
 
 
-from . import DEFAULT_URL_BASE
+from . import DEFAULT_URL_BASE, mode
+from .mode import Mode
 
 def to_hex(inp):
     return f"{inp:08X}"
@@ -35,57 +36,6 @@ class Totals:
 class Stats:
     current: Current
     totals: Totals
-
-MODE_TIME_OF_USE = "time_of_use"
-MODE_SELF_CONSUMPTION = "self_consumption"
-MODE_EMERGENCY_BACKUP = "emergency_backup"
-
-MODE_MAP = {
-        9322: MODE_TIME_OF_USE,
-        9323: MODE_SELF_CONSUMPTION,
-        9324: MODE_EMERGENCY_BACKUP,
-        }
-
-class Mode(object):
-    @staticmethod
-    def time_of_use(soc=20):
-        mode = Mode(soc)
-        mode.currendId = 9322
-        mode.workMode = 1
-        return mode
-
-    @staticmethod
-    def emergency_backup(soc=100):
-        mode = Mode(soc)
-        mode.currendId = 9324
-        mode.workMode = 3
-        return mode
-
-    @staticmethod
-    def self_consumption(soc=20):
-        mode = Mode(soc)
-        mode.currendId = 9323
-        mode.workMode = 2
-        return mode
-
-    def __init__(self, soc):
-        self.soc = soc
-        self.currendId = None
-        self.workMode = None
-
-    def payload(self, gateway):
-        return {
-                "currendId": str(self.currendId),
-                "gatewayId": gateway,
-                "lang": "EN_US",
-                "oldIndex": "1", # Who knows if this matters
-                "soc": str(self.soc),
-                "stromEn": "1",
-                "workMode": str(self.workMode),
-                }
-
-
-
 
 class TokenExpiredException(BaseException):
     """raised when the token has expired to signal upstream that you need to create a new client or inject a new token"""
@@ -251,12 +201,12 @@ class Client(object):
     def get_mode(self):
         status = self._switch_status()
         # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
-        mode_name = MODE_MAP[status["runingMode"]]
-        if mode_name == MODE_TIME_OF_USE:
+        mode_name = mode.MODE_MAP[status["runingMode"]]
+        if mode_name == mode.MODE_TIME_OF_USE:
             return (mode_name, status["touMinSoc"])
-        elif mode_name == MODE_SELF_CONSUMPTION:
+        elif mode_name == mode.MODE_SELF_CONSUMPTION:
             return (mode_name, status["selfMinSoc"])
-        elif mode_name == MODE_EMERGENCY_BACKUP:
+        elif mode_name == mode.MODE_EMERGENCY_BACKUP:
             return (mode_name, status["backupMaxSoc"])
 
     def get_stats(self) -> dict:
