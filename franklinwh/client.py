@@ -100,6 +100,9 @@ class InvalidCredentialsException(BaseException):
 class DeviceTimeoutException(BaseException):
     pass
 
+class GatewayOfflineException(BaseException):
+    pass
+
 class TokenFetcher(object):
     def __init__(self, username: str, password: str):
         self.username = username
@@ -304,6 +307,8 @@ class Client(object):
         res = self._post(url, payload)
         if res['code'] == 102:
             raise DeviceTimeoutException(res['message'])
+        if res['code'] == 136:
+            raise GatewayOfflineException(res['message'])
         assert res['code'] == 200, f"{res['code']}: {res['message']}"
         return res
 
