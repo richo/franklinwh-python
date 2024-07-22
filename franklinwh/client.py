@@ -150,6 +150,7 @@ class Client(object):
         self.refresh_token()
         self.snno = 0
 
+    # TODO(richo) Setup timeouts and deal with them gracefully.
     def _post(self, url, payload):
         def __post():
             res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
