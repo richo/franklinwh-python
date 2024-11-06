@@ -41,21 +41,27 @@ class Mode(object):
     @staticmethod
     def time_of_use(soc=20):
         mode = Mode(soc)
-        mode.currendId = 9322
+        # This is what richo's reports, which appears to be different to everyone elses
+        # mode.currendId = 9322
+        mode.currendId = 3
         mode.workMode = 1
         return mode
 
     @staticmethod
     def emergency_backup(soc=100):
         mode = Mode(soc)
-        mode.currendId = 9324
+        # richo
+        # mode.currendId = 9324
+        mode.currendId = 1
         mode.workMode = 3
         return mode
 
     @staticmethod
     def self_consumption(soc=20):
         mode = Mode(soc)
-        mode.currendId = 9323
+        # Again, richo's
+        #mode.currendId = 9323
+        mode.currendId = 2
         mode.workMode = 2
         return mode
 
