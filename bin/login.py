@@ -5,8 +5,10 @@ import hashlib
 import binascii
 
 from franklinwh import TokenFetcher
+import logging
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     if len(sys.argv) != 3:
         print("Usage: {} email password".format(sys.argv[0]))
         sys.exit(1)

@@ -6,6 +6,9 @@ import hashlib
 from dataclasses import dataclass
 import typing
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 from . import DEFAULT_URL_BASE
 
@@ -123,6 +126,8 @@ class TokenFetcher(object):
                 }
         res = requests.post(url, data=form)
         json = res.json()
+
+        logger.info("JSON payload: {}".format(repr(json)))
 
         if json['code'] == 401:
             raise InvalidCredentialsException(json['message'])
