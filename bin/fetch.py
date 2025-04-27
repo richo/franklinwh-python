@@ -1,17 +1,15 @@
 import sys
 import pprint
-from franklinwh import Client
+from franklinwh import Client, TokenFetcher
 
 def main(argv):
-    token = argv[1]
-    gateway = argv[2]
+    username = argv[1]
+    password = argv[2]
+    gateway = argv[3]
 
-    client = Client(token, gateway)
-    # pprint.pprint(client.get_stats())
-    # pprint.pprint(client.get_controllable_loads())
-    # pprint.pprint(client.get_accessory_list())
-    # pprint.pprint(client.get_equipment_list())
-    pprint.pprint(client._get_smart_switch_state())
+    fetcher = TokenFetcher(username, password)
+    client = Client(fetcher, gateway)
+    pprint.pprint(client.get_stats())
 
 
 if __name__ == "__main__":
