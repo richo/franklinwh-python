@@ -7,10 +7,9 @@ import pprint
 class CachingThread(object):
     def __init__(self, client):
         self.thread = ThreadedFetcher(client, 60, self.update_stats)
-        self.data = empty_stats()
+        self.data = None
         self.lock = Lock()
         self.thread.start()
-        # Block until we get stats
 
 
     def update_stats(self, data):
