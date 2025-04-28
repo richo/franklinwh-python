@@ -1,5 +1,5 @@
 # This is a background thread that polls the franklin API and returns its results
-from .client import Stats
+from .client import Stats, empty_stats
 from threading import Thread, Lock
 import time
 import pprint
@@ -7,16 +7,10 @@ import pprint
 class CachingThread(object):
     def __init__(self, client):
         self.thread = ThreadedFetcher(client, 60, self.update_stats)
-        self.data = None
+        self.data = empty_stats()
         self.lock = Lock()
         self.thread.start()
         # Block until we get stats
-        for i in range(10):
-            if self.data is not None:
-                break
-            time.sleep(1)
-        else:
-            pprint.pprint("Failed to prime cache")
 
 
     def update_stats(self, data):

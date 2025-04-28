@@ -12,6 +12,33 @@ from . import DEFAULT_URL_BASE
 def to_hex(inp):
     return f"{inp:08X}"
 
+def empty_stats():
+    return Stats(
+            Current(
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                ),
+            Totals(
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                ))
+
 @dataclass
 class Current:
     solar_production: float
