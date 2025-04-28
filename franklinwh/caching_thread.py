@@ -10,6 +10,13 @@ class CachingThread(object):
         self.data = None
         self.lock = Lock()
         self.thread.start()
+        # Block until we get stats
+        for i in range(10):
+            if self.data is not None:
+                break
+            thread.sleep(1)
+        else:
+            pprint.pprint("Failed to prime cache")
 
 
     def update_stats(self, data):
