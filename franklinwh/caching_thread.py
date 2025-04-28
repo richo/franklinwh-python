@@ -14,7 +14,7 @@ class CachingThread(object):
         for i in range(10):
             if self.data is not None:
                 break
-            thread.sleep(1)
+            time.sleep(1)
         else:
             pprint.pprint("Failed to prime cache")
 
