@@ -121,20 +121,20 @@ class Mode(object):
 
 
 
-class TokenExpiredException(BaseException):
+class TokenExpiredException(Exception):
     """raised when the token has expired to signal upstream that you need to create a new client or inject a new token"""
     pass
 
-class AccountLockedException(BaseException):
+class AccountLockedException(Exception):
     pass
 
-class InvalidCredentialsException(BaseException):
+class InvalidCredentialsException(Exception):
     pass
 
-class DeviceTimeoutException(BaseException):
+class DeviceTimeoutException(Exception):
     pass
 
-class GatewayOfflineException(BaseException):
+class GatewayOfflineException(Exception):
     pass
 
 class TokenFetcher(object):
