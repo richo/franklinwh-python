@@ -5,34 +5,35 @@ import time
 import pprint
 
 class CachingThread(object):
-    def __init__(self, client):
-        self.thread = ThreadedFetcher(client, 60, self.update_stats)
+    def __init__(self):
+        self.thread = None
         self.data = None
         self.lock = Lock()
+
+    def start(self, fetch_func):
+        self.thread = ThreadedFetcher(fetch_func, 60, self.update_data)
         self.thread.start()
 
-
-    def update_stats(self, data):
+    def update_data(self, data):
         with self.lock:
             self.data = data
 
-    def get_stats(self):
+    def get_data(self):
         with self.lock:
             return self.data
-
 
 class ThreadedFetcher(Thread):
     def __init__(self, client, poll_every, cb):
         super().__init__()
         self.daemon = True
-        self.client = client
+        self.fetch_func = fetch_func
         self.poll_every = poll_every
         self.cb = cb
 
     def run(self):
         while True:
             try:
-                stats = self.client.get_stats()
+                stats = self.fetch_func()
                 self.cb(stats)
             except Exception as e:
                 # TODO(richo) better logging
