@@ -37,6 +37,9 @@ def empty_stats():
                 0.0,
                 0.0,
                 0.0,
+                ),
+            State(
+                True
                 ))
 
 @dataclass
@@ -66,9 +69,14 @@ class Totals:
     v2l_import: float
 
 @dataclass
+class State:
+    grid_connected: bool
+
+@dataclass
 class Stats:
     current: Current
     totals: Totals
+    state: State
 
 MODE_TIME_OF_USE = "time_of_use"
 MODE_SELF_CONSUMPTION = "self_consumption"
