@@ -23,7 +23,7 @@ class CachingThread(object):
             return self.data
 
 class ThreadedFetcher(Thread):
-    def __init__(self, client, poll_every, cb):
+    def __init__(self, fetch_func, poll_every, cb):
         super().__init__()
         self.daemon = True
         self.fetch_func = fetch_func
