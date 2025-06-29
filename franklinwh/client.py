@@ -9,6 +9,8 @@ import typing
 
 from . import DEFAULT_URL_BASE
 
+s = requests.Session()
+
 def to_hex(inp):
     return f"{inp:08X}"
 
@@ -155,7 +157,7 @@ class TokenFetcher(object):
                 "lang": "en_US",
                 "type": 1,
                 }
-        res = requests.post(url, data=form)
+        res = s.post(url, data=form)
         json = res.json()
 
         if json['code'] == 401:
@@ -187,20 +189,20 @@ class Client(object):
     # TODO(richo) Setup timeouts and deal with them gracefully.
     def _post(self, url, payload):
         def __post():
-            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
+            res = s.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
     def _post_form(self, url, payload):
         def __post():
-            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded", "optsource": "3" }, data=payload).json()
+            res = s.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded", "optsource": "3" }, data=payload).json()
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
     def _get(self, url):
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         def __get():
-            return requests.get(url, params=params, headers={ "loginToken": self.token }).json()
+            return s.get(url, params=params, headers={ "loginToken": self.token }).json()
         return retry(__get, lambda j: j['code'] != 401, self.refresh_token)
 
 
@@ -370,19 +372,19 @@ class UnknownMethodsClient(Client):
         url = self.url_base + "hes-gateway/terminal/selectTerGatewayControlLoadByGatewayId"
         params = { "id": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = s.get(url, params=params, headers=headers)
         return res.json()
 
     def get_accessory_list(self):
         url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = s.get(url, params=params, headers=headers)
         return res.json()
 
     def get_equipment_list(self):
         url = self.url_base + "hes-gateway/manage/getEquipmentList"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = s.get(url, params=params, headers=headers)
         return res.json()
