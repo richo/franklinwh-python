@@ -141,12 +141,12 @@ class TokenFetcher(object):
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
+        self.session = requests.Session()
 
     def get_token(self):
-        return TokenFetcher.login(self.username, self.password)
+        return self.login(self.username, self.password)
 
-    @staticmethod
-    def login(username: str, password: str):
+    def login(self, username: str, password: str):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         hash = hashlib.md5(bytes(password, "ascii")).hexdigest()
         form = {
@@ -155,7 +155,7 @@ class TokenFetcher(object):
                 "lang": "en_US",
                 "type": 1,
                 }
-        res = requests.post(url, data=form)
+        res = self.session.post(url, data=form)
         json = res.json()
 
         if json['code'] == 401:
@@ -183,24 +183,25 @@ class Client(object):
         self.url_base = url_base
         self.refresh_token()
         self.snno = 0
+        self.session = requests.Session()
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     def _post(self, url, payload):
         def __post():
-            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
+            res = self.session.post(url, headers={ "loginToken": self.token, "Content-Type": "application/json" }, data=payload).json()
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
     def _post_form(self, url, payload):
         def __post():
-            res = requests.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded", "optsource": "3" }, data=payload).json()
+            res = self.session.post(url, headers={ "loginToken": self.token, "Content-Type": "application/x-www-form-urlencoded", "optsource": "3" }, data=payload).json()
             return res
         return retry(__post, lambda j: j['code'] != 401, self.refresh_token)
 
     def _get(self, url):
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         def __get():
-            return requests.get(url, params=params, headers={ "loginToken": self.token }).json()
+            return self.session.get(url, params=params, headers={ "loginToken": self.token }).json()
         return retry(__get, lambda j: j['code'] != 401, self.refresh_token)
 
 
@@ -366,23 +367,26 @@ class Client(object):
 class UnknownMethodsClient(Client):
     """A client that also implements some methods that don't obviously work, for research purposes"""
 
+    def __init__(self):
+        self.session = requests.Session()
+
     def get_controllable_loads(self):
         url = self.url_base + "hes-gateway/terminal/selectTerGatewayControlLoadByGatewayId"
         params = { "id": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = self.session.get(url, params=params, headers=headers)
         return res.json()
 
     def get_accessory_list(self):
         url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = self.session.get(url, params=params, headers=headers)
         return res.json()
 
     def get_equipment_list(self):
         url = self.url_base + "hes-gateway/manage/getEquipmentList"
         params = { "gatewayId": self.gateway, "lang": "en_US" }
         headers = { "loginToken": self.token }
-        res = requests.get(url, params=params, headers=headers)
+        res = self.session.get(url, params=params, headers=headers)
         return res.json()
