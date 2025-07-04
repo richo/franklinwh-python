@@ -4,7 +4,12 @@ from threading import Thread, Lock
 import time
 import pprint
 
-DEFAULT_POLL_EVERY = 60
+# The default polling interval is measured in seconds.
+
+# Defaulting to 58 seconds avoids re-creating the connection (and redoing
+# the TLS security handshake) on every sensor update since there are
+# timeouts that close the connection after 60 seconds.
+DEFAULT_POLL_EVERY = 58
 
 class CachingThread(object):
     def __init__(self):
