@@ -1,13 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from .caching_thread import CachingThread, ThreadedFetcher, DEFAULT_POLL_EVERY
-from .client import empty_stats, Stats, Current, Totals
+from .client import Stats, Current, Totals
 import time
-
-# Mock empty_stats for consistent testing
-@pytest.fixture
-def mock_empty_stats():
-    return empty_stats()
 
 @pytest.fixture(autouse=True)
 def no_sleep_or_join(monkeypatch):
@@ -16,10 +11,10 @@ def no_sleep_or_join(monkeypatch):
     # Prevent actual thread joining during tests, as it can block
     monkeypatch.setattr(ThreadedFetcher, "join", MagicMock())
 
-def test_caching_thread_initialization(mock_empty_stats):
+def test_caching_thread_initialization():
     thread = CachingThread()
     assert thread.thread is None
-    assert thread.data == mock_empty_stats # Should be initialized with empty_stats
+    assert thread.data is None
     assert thread.lock is not None
 
 def test_caching_thread_start_and_get_data():
