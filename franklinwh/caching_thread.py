@@ -4,15 +4,27 @@ from threading import Thread, Lock
 import time
 import pprint
 
+# The default polling interval is measured in seconds.
+
+# Defaulting to 58 seconds avoids re-creating the connection (and redoing
+# the TLS security handshake) on every sensor update since there are
+# timeouts that close the connection after 60 seconds.
+DEFAULT_POLL_EVERY = 58
+
 class CachingThread(object):
     def __init__(self):
         self.thread = None
+        # Needs to be None so that home assistant knows there is no values yet.
         self.data = None
         self.lock = Lock()
 
-    def start(self, fetch_func):
-        self.thread = ThreadedFetcher(fetch_func, 60, self.update_data)
+    def start(self, fetch_func, poll_every=DEFAULT_POLL_EVERY):
+        self.thread = ThreadedFetcher(fetch_func, poll_every, self.update_data)
         self.thread.start()
+
+    def stop(self):
+        self.thread.stop()
+        self.thread.join()
 
     def update_data(self, data):
         with self.lock:
@@ -26,12 +38,16 @@ class ThreadedFetcher(Thread):
     def __init__(self, fetch_func, poll_every, cb):
         super().__init__()
         self.daemon = True
+        self.stopped = False
         self.fetch_func = fetch_func
         self.poll_every = poll_every
         self.cb = cb
 
+    def stop(self):
+        self.stopped = True
+
     def run(self):
-        while True:
+        while not self.stopped:
             try:
                 stats = self.fetch_func()
                 self.cb(stats)
