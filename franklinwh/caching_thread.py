@@ -14,7 +14,8 @@ DEFAULT_POLL_EVERY = 58
 class CachingThread(object):
     def __init__(self):
         self.thread = None
-        self.data = empty_stats()
+        # Needs to be None so that home assistant knows there is no values yet.
+        self.data = None
         self.lock = Lock()
 
     def start(self, fetch_func, poll_every=DEFAULT_POLL_EVERY):
