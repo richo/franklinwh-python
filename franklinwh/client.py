@@ -144,8 +144,9 @@ class TokenFetcher(object):
         self.session = requests.Session()
 
     def get_token(self):
-        return self.login(self.username, self.password)
+        return TokenFetcher.login(self.username, self.password)
 
+    @staticmethod
     def login(self, username: str, password: str):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         hash = hashlib.md5(bytes(password, "ascii")).hexdigest()
@@ -155,7 +156,7 @@ class TokenFetcher(object):
                 "lang": "en_US",
                 "type": 1,
                 }
-        res = self.session.post(url, data=form)
+        res = requests.post(url, data=form)
         json = res.json()
 
         if json['code'] == 401:
