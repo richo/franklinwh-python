@@ -147,7 +147,7 @@ class TokenFetcher(object):
         return TokenFetcher.login(self.username, self.password)
 
     @staticmethod
-    def login(self, username: str, password: str):
+    def login(username: str, password: str):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         hash = hashlib.md5(bytes(password, "ascii")).hexdigest()
         form = {
