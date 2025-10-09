@@ -1,4 +1,4 @@
-"""Helpers for interating with the FranklinWH API."""
+"""Helpers for interacting with the FranklinWH API."""
 
 from typing import Final
 

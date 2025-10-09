@@ -460,7 +460,7 @@ class Client:
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
         data = self._status()
-        swdata = self._switch_usage()
+        sw_data = self._switch_usage()
 
         return Stats(
             Current(
@@ -470,9 +470,9 @@ class Client:
                 data["p_uti"],
                 data["p_load"],
                 data["soc"],
-                swdata["SW1ExpPower"],
-                swdata["SW2ExpPower"],
-                swdata["CarSWPower"],
+                sw_data["SW1ExpPower"],
+                sw_data["SW2ExpPower"],
+                sw_data["CarSWPower"],
             ),
             Totals(
                 data["kwh_fhp_chg"],
@@ -482,10 +482,10 @@ class Client:
                 data["kwh_sun"],
                 data["kwh_gen"],
                 data["kwh_load"],
-                swdata["SW1ExpEnergy"],
-                swdata["SW2ExpEnergy"],
-                swdata["CarSWExpEnergy"],
-                swdata["CarSWImpEnergy"],
+                sw_data["SW1ExpEnergy"],
+                sw_data["SW2ExpEnergy"],
+                sw_data["CarSWExpEnergy"],
+                sw_data["CarSWImpEnergy"],
             ),
         )
 
