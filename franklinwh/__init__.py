@@ -2,12 +2,13 @@
 
 from .api import DEFAULT_URL_BASE
 from .caching_thread import CachingThread
-from .client import Client, Mode, TokenFetcher
+from .client import Client, GridStatus, Mode, TokenFetcher
 
 __all__ = [
     "DEFAULT_URL_BASE",
     "CachingThread",
     "Client",
+    "GridStatus",
     "Mode",
     "TokenFetcher",
 ]

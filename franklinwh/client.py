@@ -5,6 +5,7 @@ and retrieve statistics from FranklinWH energy gateway devices.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 import hashlib
 import json
 import time
@@ -50,6 +51,7 @@ def empty_stats():
             0.0,
             0.0,
             0.0,
+            GridStatus.NORMAL,
         ),
         Totals(
             0.0,
@@ -67,9 +69,27 @@ def empty_stats():
     )
 
 
+class GridStatus(Enum):
+    """Represents the status of the grid connection for the FranklinWH gateway.
+
+    Attributes:
+        NORMAL (int): Grid connection is normal / up.
+        DOWN (int): Grid connection is abnormal / down.
+        OFF (int): Grid connection is turned off at the gateway.
+
+    OFF is set by software, specifically Settings / Go Off-Grid in the app.
+    DOWN is external to the gateway.
+    NORMAL indicates normal operation.
+    """
+
+    NORMAL = 0
+    DOWN = 1
+    OFF = 2
+
+
 @dataclass
 class Current:
-    """Current power statistics for FranklinWH gateway."""
+    """Current statistics for FranklinWH gateway."""
 
     solar_production: float
     generator_production: float
@@ -80,6 +100,7 @@ class Current:
     switch_1_load: float
     switch_2_load: float
     v2l_use: float
+    grid_status: GridStatus
 
 
 @dataclass
@@ -460,6 +481,9 @@ class Client:
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
         data = self._status()
+        grid_status: GridStatus = GridStatus.NORMAL
+        if "offgridreason" in data:
+            grid_status = GridStatus(1 + data["offgridreason"])
         sw_data = self._switch_usage()
 
         return Stats(
@@ -473,6 +497,7 @@ class Client:
                 sw_data["SW1ExpPower"],
                 sw_data["SW2ExpPower"],
                 sw_data["CarSWPower"],
+                grid_status,
             ),
             Totals(
                 data["kwh_fhp_chg"],
