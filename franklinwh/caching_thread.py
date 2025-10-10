@@ -1,5 +1,4 @@
 # This is a background thread that polls the franklin API and returns its results
-from .client import Stats, empty_stats
 from threading import Thread, Lock
 import time
 import pprint

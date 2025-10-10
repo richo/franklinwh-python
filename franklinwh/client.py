@@ -552,6 +552,22 @@ class Client:
         assert res["code"] == 200, f"{res['code']}: {res['message']}"
         return res
 
+    def set_grid_status(self, status: GridStatus, soc: int = 5):
+        """Set the grid status of the FranklinWH gateway.
+
+        Parameters
+        ----------
+        status : GridStatus
+            The desired grid status to set.
+        """
+        url = self.url_base + "hes-gateway/terminal/updateOffgrid"
+        payload = {
+            "gatewayId": self.gateway,
+            "offgridSet": int(status != GridStatus.NORMAL),
+            "offgridSoc": soc,
+        }
+        self._post(url, json.dumps(payload))
+
 
 class UnknownMethodsClient(Client):
     """A client that also implements some methods that don't obviously work, for research purposes."""
