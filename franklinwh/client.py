@@ -11,7 +11,7 @@ import json
 import time
 import zlib
 
-import requests
+import httpx
 
 from .api import DEFAULT_URL_BASE
 
@@ -286,7 +286,7 @@ class TokenFetcher:
         """Initialize the TokenFetcher with the provided username and password."""
         self.username = username
         self.password = password
-        self.session = requests.Session()
+        self.session = httpx.Client(http2=True)
 
     def get_token(self):
         """Fetch a new authentication token using the stored credentials."""
@@ -304,7 +304,7 @@ class TokenFetcher:
             "lang": "en_US",
             "type": 1,
         }
-        res = requests.post(url, data=form, timeout=10)
+        res = httpx.post(url, data=form, timeout=10)
         js = res.json()
 
         if js["code"] == 401:
@@ -316,10 +316,10 @@ class TokenFetcher:
         return js["result"]["token"]
 
 
-def retry(func, fltr, refresh_func):
+def retry(func, filter, refresh_func):
     """Tries calling func, and if filter fails it calls refresh func then tries again."""
     res = func()
-    if fltr(res):
+    if filter(res):
         return res
     refresh_func()
     return func()
@@ -337,7 +337,7 @@ class Client:
         self.url_base = url_base
         self.refresh_token()
         self.snno = 0
-        self.session = requests.Session()
+        self.session = httpx.Client(http2=True)
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     def _post(self, url, payload):

@@ -1,6 +1,10 @@
-import sys
+#!/usr/bin/env python3
+# ruff: noqa: D100, D103, T203
 import pprint
+import sys
+
 from franklinwh import Client, TokenFetcher
+
 
 def main(argv):
     username = argv[1]
