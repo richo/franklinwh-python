@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import json
+import logging
 import time
 import zlib
 
@@ -338,6 +339,49 @@ class Client:
         self.refresh_token()
         self.snno = 0
         self.session = httpx.Client(http2=True)
+
+        # to enable detailed logging add this to configuration.yaml:
+        # logger:
+        #   logs:
+        #     franklinwh: debug
+
+        logger = logging.getLogger("franklinwh")
+        if logger.isEnabledFor(logging.DEBUG):
+
+            def debug_request(request: httpx.Request):
+                body = request.content
+                if request.headers.get("Content-Type", "").startswith(
+                    "application/json"
+                ):
+                    body = json.dumps(json.loads(body), ensure_ascii=False)
+                self.logger.debug(
+                    "Request: %s %s %s %s",
+                    request.method,
+                    request.url,
+                    request.headers,
+                    body,
+                )
+                return request
+
+            def debug_response(response: httpx.Response):
+                response.read()
+                self.logger.debug(
+                    "Response: %s %s %s %s",
+                    response.status_code,
+                    response.url,
+                    response.headers,
+                    response.json()
+                )
+                return response
+
+            self.logger = logger
+            self.session = httpx.Client(
+                http2=True,
+                event_hooks={
+                    "request": [debug_request],
+                    "response": [debug_response],
+                },
+            )
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     def _post(self, url, payload):
