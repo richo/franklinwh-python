@@ -17,6 +17,18 @@ import httpx
 from .api import DEFAULT_URL_BASE
 
 
+class AccessoryType(Enum):
+    """Represents the type of accessory connected to the FranklinWH gateway.
+
+    Attributes:
+        SMART_CIRCUIT_MODULE (int): A Smart Circuit module, see https://www.franklinwh.com/document/download/smart-circuits-module-installation-guide-sku-accy-scv2-us
+        GENERATOR_MODULE (int): A Generator module, see https://www.franklinwh.com/document/download/generator-module-installation-guide-sku-accy-genv2-us
+    """
+
+    GENERATOR_MODULE = 3
+    SMART_CIRCUIT_MODULE = 4
+
+
 def to_hex(inp):
     """Convert an integer to an 8-character uppercase hexadecimal string.
 
@@ -370,7 +382,7 @@ class Client:
                     response.status_code,
                     response.url,
                     response.headers,
-                    response.json()
+                    response.json(),
                 )
                 return response
 
@@ -421,6 +433,13 @@ class Client:
     def refresh_token(self):
         """Refresh the authentication token using the TokenFetcher."""
         self.token = self.fetcher.get_token()
+
+    def get_accessories(self):
+        """Get the list of accessories connected to the gateway."""
+        url = self.url_base + "hes-gateway/common/getAccessoryList"
+        # with no accessories this returns:
+        # {"code":200,"message":"Query success!","result":[],"success":true,"total":0}
+        return self._get(url)["result"]
 
     def get_smart_switch_state(self):
         """Get the current state of the smart switches."""
