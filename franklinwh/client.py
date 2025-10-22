@@ -299,15 +299,25 @@ class TokenFetcher:
         """Initialize the TokenFetcher with the provided username and password."""
         self.username = username
         self.password = password
+        self.info: dict | None = None
         self.session = httpx.Client(http2=True)
 
     def get_token(self):
-        """Fetch a new authentication token using the stored credentials."""
-        return TokenFetcher.login(self.username, self.password)
+        """Fetch a new authentication token using the stored credentials.
+
+        Store the intermediate account information in self.info.
+        """
+        self.info = TokenFetcher._login(self.username, self.password)
+        return self.info["token"]
 
     @staticmethod
     def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
+        return TokenFetcher._login(username, password)["token"]
+
+    @staticmethod
+    def _login(username: str, password: str) -> dict:
+        """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         )
@@ -326,7 +336,7 @@ class TokenFetcher:
         if js["code"] == 400:
             raise AccountLockedException(js["message"])
 
-        return js["result"]["token"]
+        return js["result"]
 
 
 def retry(func, filter, refresh_func):
