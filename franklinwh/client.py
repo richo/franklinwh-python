@@ -406,10 +406,15 @@ class Client:
             )
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
-    def _post(self, url, payload):
+    def _post(self, url, payload, params: dict | None = None):
+        if params is not None:
+            params = params.copy()
+            params.update({"gatewayId": self.gateway, "lang": "en_US"})
+
         def __post():
             return self.session.post(
                 url,
+                params=params,
                 headers={"loginToken": self.token, "Content-Type": "application/json"},
                 data=payload,
             ).json()
@@ -430,8 +435,12 @@ class Client:
 
         return retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
-    def _get(self, url):
-        params = {"gatewayId": self.gateway, "lang": "en_US"}
+    def _get(self, url, params: dict | None = None):
+        if params is None:
+            params = {}
+        else:
+            params = params.copy()
+        params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
         def __get():
             return self.session.get(
