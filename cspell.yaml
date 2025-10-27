@@ -1,7 +1,9 @@
 words:
+  - Apowers
   - currend
   - franklinwh
   - httpx
+  - jsonpickle
   - mqtt
   - offgrid
   - offgridreason
@@ -9,5 +11,6 @@ words:
   - pytest
   - richo
   - runing
+  - sdcp
   - snno
   - strom
