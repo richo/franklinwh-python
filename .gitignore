@@ -1,0 +1,3 @@
+# cspell:disable
+dist/
+__pycache__

@@ -1,5 +1,4 @@
 # This is a background thread that polls the franklin API and returns its results
-from .client import Stats, empty_stats
 from threading import Thread, Lock
 import time
 import pprint
@@ -13,7 +12,7 @@ DEFAULT_POLL_EVERY = 58
 
 class CachingThread(object):
     def __init__(self):
-        self.thread = None
+        self.thread: ThreadedFetcher = None # type: ignore
         # Needs to be None so that home assistant knows there is no values yet.
         self.data = None
         self.lock = Lock()

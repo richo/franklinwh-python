@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-import sys
-import requests
-import hashlib
-import binascii
+# ruff: noqa: D100, T201
 import pprint
+import sys
 
-from franklinwh import TokenFetcher, Client
+from franklinwh import Client, TokenFetcher
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Usage: {} email password gatewayid".format(sys.argv[0]))
+        print(f"Usage: {sys.argv[0]} email password gatewayId")
         sys.exit(1)
     fetcher = TokenFetcher(sys.argv[1], sys.argv[2])
     gateway = sys.argv[3]
     client = Client(fetcher, gateway)
 
-    pprint.pprint(client._switch_status())
-
-
-
-
+    pprint.pprint(client._switch_status())  # noqa: SLF001, T203

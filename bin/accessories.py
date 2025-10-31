@@ -13,7 +13,7 @@ def main(argv):
 
     fetcher = TokenFetcher(username, password)
     client = Client(fetcher, gateway)
-    pprint.pprint(client.get_stats())
+    pprint.pprint(client.get_accessories())
 
 
 if __name__ == "__main__":
