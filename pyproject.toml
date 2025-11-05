@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+bin = [
+  "jsonpickle"
+]
 test = [
   "pytest"
 ]
