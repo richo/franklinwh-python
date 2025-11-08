@@ -8,9 +8,11 @@ words:
   - offgrid
   - offgridreason
   - optsource
+  - pyproject
   - pytest
   - richo
   - runing
   - sdcp
   - snno
   - strom
+  - venv

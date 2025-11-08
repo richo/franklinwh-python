@@ -21,6 +21,10 @@ dependencies = [
 bin = [
   "jsonpickle"
 ]
+build = [
+  "build",
+  "twine",
+]
 test = [
   "pytest"
 ]
