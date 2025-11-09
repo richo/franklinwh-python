@@ -2,6 +2,7 @@
 """Get information about the FranklinHW installation."""
 
 import argparse
+import logging
 import sys
 import time
 
@@ -12,6 +13,11 @@ import jsonpickle
 def main():
     """Do all the work."""
     parser = argparse.ArgumentParser(description="Get FranklinWH installation info.")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging.",
+    )
     parser.add_argument(
         "username",
         type=str,
@@ -29,6 +35,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.debug:
+        logging.basicConfig()
+        logging.getLogger("franklinwh").setLevel(logging.DEBUG)
+        logging.getLogger("httpx").setLevel(logging.DEBUG)
 
     fetcher = TokenFetcher(args.username, args.password)
     client = Client(fetcher, args.gateway)
