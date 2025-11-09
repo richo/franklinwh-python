@@ -372,7 +372,7 @@ class Client:
 
             def debug_request(request: httpx.Request):
                 body = request.content
-                if request.headers.get("Content-Type", "").startswith(
+                if body and request.headers.get("Content-Type", "").startswith(
                     "application/json"
                 ):
                     body = json.dumps(json.loads(body), ensure_ascii=False)
