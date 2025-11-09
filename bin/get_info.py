@@ -2,6 +2,7 @@
 """Get information about the FranklinHW installation."""
 
 import argparse
+import asyncio
 import logging
 import sys
 import time
@@ -10,7 +11,7 @@ from franklinwh import Client, TokenFetcher
 import jsonpickle
 
 
-def main():
+async def main():
     """Do all the work."""
     parser = argparse.ArgumentParser(description="Get FranklinWH installation info.")
     parser.add_argument(
@@ -43,7 +44,7 @@ def main():
 
     fetcher = TokenFetcher(args.username, args.password)
     client = Client(fetcher, args.gateway)
-    client.refresh_token()  # populate fetcher.info
+    await client.refresh_token()  # populate fetcher.info
     assert fetcher.info is not None
     dayTime = time.strftime("%Y-%m-%d")
 
@@ -112,20 +113,23 @@ def main():
         "get_stats": None,
     }
 
-    def get(func: str) -> None:
+    async def get(func: str) -> None:
         if func.endswith("/getGatewayTouListV2"):
-            return client._post(client.url_base + func, None, functions[func])["result"]  # noqa: SLF001
+            return (await client._post(client.url_base + func, None, functions[func]))["result"]  # noqa: SLF001
         if func.startswith(("api-energy", "hes-gateway")):
-            return client._get(client.url_base + func, functions[func])["result"]  # noqa: SLF001
-        return getattr(client, func)()
+            return (await client._get(client.url_base + func, functions[func]))["result"]  # noqa: SLF001
+        return await getattr(client, func)()
 
-    results = {}
-    for func in functions:
-        results[func] = get(func)
-    print(jsonpickle.dumps(results, indent=2, unpicklable=False))  # noqa: T201
+    async def async_get(func: str) -> None:
+        functions[func] = await get(func)
+
+    tasks = [async_get(func) for func in functions]
+    await asyncio.gather(*tasks)
+
+    print(jsonpickle.dumps(functions, indent=2, unpicklable=False))  # noqa: T201
 
     sys.exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

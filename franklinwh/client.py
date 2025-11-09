@@ -300,23 +300,22 @@ class TokenFetcher:
         self.username = username
         self.password = password
         self.info: dict | None = None
-        self.session = httpx.Client(http2=True)
 
-    def get_token(self):
+    async def get_token(self):
         """Fetch a new authentication token using the stored credentials.
 
         Store the intermediate account information in self.info.
         """
-        self.info = TokenFetcher._login(self.username, self.password)
+        self.info = await TokenFetcher._login(self.username, self.password)
         return self.info["token"]
 
     @staticmethod
-    def login(username: str, password: str):
+    async def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
-        return TokenFetcher._login(username, password)["token"]
+        return (await TokenFetcher._login(username, password))["token"]
 
     @staticmethod
-    def _login(username: str, password: str) -> dict:
+    async def _login(username: str, password: str) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
@@ -327,7 +326,9 @@ class TokenFetcher:
             "lang": "en_US",
             "type": 1,
         }
-        res = httpx.post(url, data=form, timeout=10)
+        async with httpx.AsyncClient(http2=True) as client:
+            res = await client.post(url, data=form, timeout=10)
+        res.raise_for_status()
         js = res.json()
 
         if js["code"] == 401:
@@ -339,13 +340,13 @@ class TokenFetcher:
         return js["result"]
 
 
-def retry(func, filter, refresh_func):
+async def retry(func, filter, refresh_func):
     """Tries calling func, and if filter fails it calls refresh func then tries again."""
-    res = func()
+    res = await func()
     if filter(res):
         return res
-    refresh_func()
-    return func()
+    await refresh_func()
+    return await func()
 
 
 class Client:
@@ -358,9 +359,9 @@ class Client:
         self.fetcher = fetcher
         self.gateway = gateway
         self.url_base = url_base
-        self.refresh_token()
+        self.token = ""
         self.snno = 0
-        self.session = httpx.Client(http2=True)
+        self.session = httpx.AsyncClient(http2=True)
 
         # to enable detailed logging add this to configuration.yaml:
         # logger:
@@ -370,7 +371,7 @@ class Client:
         logger = logging.getLogger("franklinwh")
         if logger.isEnabledFor(logging.DEBUG):
 
-            def debug_request(request: httpx.Request):
+            async def debug_request(request: httpx.Request):
                 body = request.content
                 if body and request.headers.get("Content-Type", "").startswith(
                     "application/json"
@@ -385,8 +386,8 @@ class Client:
                 )
                 return request
 
-            def debug_response(response: httpx.Response):
-                response.read()
+            async def debug_response(response: httpx.Response):
+                await response.aread()
                 self.logger.debug(
                     "Response: %s %s %s %s",
                     response.status_code,
@@ -397,7 +398,7 @@ class Client:
                 return response
 
             self.logger = logger
-            self.session = httpx.Client(
+            self.session = httpx.AsyncClient(
                 http2=True,
                 event_hooks={
                     "request": [debug_request],
@@ -406,72 +407,81 @@ class Client:
             )
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
-    def _post(self, url, payload, params: dict | None = None):
+    async def _post(self, url, payload, params: dict | None = None):
         if params is not None:
             params = params.copy()
             params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
-        def __post():
-            return self.session.post(
-                url,
-                params=params,
-                headers={"loginToken": self.token, "Content-Type": "application/json"},
-                data=payload,
+        async def __post():
+            return (
+                await self.session.post(
+                    url,
+                    params=params,
+                    headers={
+                        "loginToken": self.token,
+                        "Content-Type": "application/json",
+                    },
+                    data=payload,
+                )
             ).json()
 
-        return retry(__post, lambda j: j["code"] != 401, self.refresh_token)
+        return await retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
-    def _post_form(self, url, payload):
-        def __post():
-            return self.session.post(
-                url,
-                headers={
-                    "loginToken": self.token,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "optsource": "3",
-                },
-                data=payload,
+    async def _post_form(self, url, payload):
+        async def __post():
+            return (
+                await self.session.post(
+                    url,
+                    headers={
+                        "loginToken": self.token,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "optsource": "3",
+                    },
+                    data=payload,
+                )
             ).json()
 
-        return retry(__post, lambda j: j["code"] != 401, self.refresh_token)
+        return await retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
-    def _get(self, url, params: dict | None = None):
+    async def _get(self, url, params: dict | None = None):
         if params is None:
             params = {}
         else:
             params = params.copy()
         params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
-        def __get():
-            return self.session.get(
-                url, params=params, headers={"loginToken": self.token}
+        async def __get():
+            return (
+                await self.session.get(
+                    url, params=params, headers={"loginToken": self.token}
+                )
             ).json()
 
-        return retry(__get, lambda j: j["code"] != 401, self.refresh_token)
+        return await retry(__get, lambda j: j["code"] != 401, self.refresh_token)
 
-    def refresh_token(self):
+    async def refresh_token(self):
         """Refresh the authentication token using the TokenFetcher."""
-        self.token = self.fetcher.get_token()
+        self.token = await self.fetcher.get_token()
 
-    def get_accessories(self):
+    async def get_accessories(self):
         """Get the list of accessories connected to the gateway."""
         url = self.url_base + "hes-gateway/common/getAccessoryList"
         # with no accessories this returns:
         # {"code":200,"message":"Query success!","result":[],"success":true,"total":0}
-        return self._get(url)["result"]
+        return (await self._get(url))["result"]
 
-    def get_smart_switch_state(self):
+    async def get_smart_switch_state(self):
         """Get the current state of the smart switches."""
         # TODO(richo) This API is super in flux, both because of how vague the
         # underlying API is and also trying to figure out what to do with
         # inconsistency.
         # Whether this should use the _switch_status() API is super unclear.
         # Maybe I will reach out to FranklinWH once I have published.
-        status = self._status()
+        status = await self._status()
         switches = (x == 1 for x in status["pro_load"])
         return tuple(switches)
 
-    def set_smart_switch_state(
+    async def set_smart_switch_state(
         self, state: tuple[bool | None, bool | None, bool | None]
     ):
         """Set the state of the smart circuits.
@@ -481,7 +491,7 @@ class Client:
         unchanged.
         """
 
-        payload = self._switch_status()
+        payload = await self._switch_status()
         payload["opt"] = 1
         payload.pop("modeChoose")
         payload.pop("result")
@@ -508,29 +518,29 @@ class Client:
                 payload[pro_load] = payload[mode] ^ 1
 
         wire_payload = self._build_payload(311, payload)
-        data = self._mqtt_send(wire_payload)["result"]["dataArea"]
+        data = (await self._mqtt_send(wire_payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 203 which is a high level status
-    def _status(self):
+    async def _status(self):
         payload = self._build_payload(203, {"opt": 1, "refreshData": 1})
-        data = self._mqtt_send(payload)["result"]["dataArea"]
+        data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 311 which appears to be a more specific switch command
-    def _switch_status(self):
+    async def _switch_status(self):
         payload = self._build_payload(311, {"opt": 0, "order": self.gateway})
-        data = self._mqtt_send(payload)["result"]["dataArea"]
+        data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 353 which grabs real-time smart-circuit load information
     # https://github.com/richo/homeassistant-franklinwh/issues/27#issuecomment-2714422732
-    def _switch_usage(self):
+    async def _switch_usage(self):
         payload = self._build_payload(353, {"opt": 0, "order": self.gateway})
-        data = self._mqtt_send(payload)["result"]["dataArea"]
+        data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
-    def set_mode(self, mode):
+    async def set_mode(self, mode):
         """Set the operating mode of the FranklinWH gateway."""
         # Time of use:
         # currendId=9322&gatewayId=___&lang=EN_US&oldIndex=3&soc=15&stromEn=1&workMode=1
@@ -542,11 +552,11 @@ class Client:
         # currendId=9323&gatewayId=___&lang=EN_US&oldIndex=2&soc=20&stromEn=1&workMode=2
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/tou/updateTouMode"
         payload = mode.payload(self.gateway)
-        self._post_form(url, payload)
+        await self._post_form(url, payload)
 
-    def get_mode(self):
+    async def get_mode(self):
         """Get the current operating mode of the FranklinWH gateway."""
-        status = self._switch_status()
+        status = await self._switch_status()
         # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
         mode_name = MODE_MAP[status["runingMode"]]
         if mode_name == MODE_TIME_OF_USE:
@@ -557,16 +567,16 @@ class Client:
             return (mode_name, status["backupMaxSoc"])
         raise RuntimeError(f"Unknown mode {status['runingMode']}")
 
-    def get_stats(self) -> Stats:
+    async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        data = self._status()
+        data = await self._status()
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
             grid_status = GridStatus(1 + data["offgridreason"])
-        sw_data = self._switch_usage()
+        sw_data = await self._switch_usage()
 
         return Stats(
             Current(
@@ -623,10 +633,10 @@ class Client:
         # We do it this way because without a canonical way to generate JSON we can't risk reordering breaking the CRC.
         return temp.replace('"DATA"', blob.decode("utf-8"))
 
-    def _mqtt_send(self, payload):
+    async def _mqtt_send(self, payload):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
 
-        res = self._post(url, payload)
+        res = await self._post(url, payload)
         if res["code"] == 102:
             raise DeviceTimeoutException(res["message"])
         if res["code"] == 136:
@@ -634,7 +644,7 @@ class Client:
         assert res["code"] == 200, f"{res['code']}: {res['message']}"
         return res
 
-    def set_grid_status(self, status: GridStatus, soc: int = 5):
+    async def set_grid_status(self, status: GridStatus, soc: int = 5):
         """Set the grid status of the FranklinWH gateway.
 
         Parameters
@@ -648,13 +658,13 @@ class Client:
             "offgridSet": int(status != GridStatus.NORMAL),
             "offgridSoc": soc,
         }
-        self._post(url, json.dumps(payload))
+        await self._post(url, json.dumps(payload))
 
 
 class UnknownMethodsClient(Client):
     """A client that also implements some methods that don't obviously work, for research purposes."""
 
-    def get_controllable_loads(self):
+    async def get_controllable_loads(self):
         """Get the list of controllable loads connected to the gateway."""
         url = (
             self.url_base
@@ -662,21 +672,21 @@ class UnknownMethodsClient(Client):
         )
         params = {"id": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = self.session.get(url, params=params, headers=headers)
+        res = await self.session.get(url, params=params, headers=headers)
         return res.json()
 
-    def get_accessory_list(self):
+    async def get_accessory_list(self):
         """Get the list of accessories connected to the gateway."""
         url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
         params = {"gatewayId": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = self.session.get(url, params=params, headers=headers)
+        res = await self.session.get(url, params=params, headers=headers)
         return res.json()
 
-    def get_equipment_list(self):
+    async def get_equipment_list(self):
         """Get the list of equipment connected to the gateway."""
         url = self.url_base + "hes-gateway/manage/getEquipmentList"
         params = {"gatewayId": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = self.session.get(url, params=params, headers=headers)
+        res = await self.session.get(url, params=params, headers=headers)
         return res.json()
