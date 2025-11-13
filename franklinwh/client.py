@@ -299,15 +299,25 @@ class TokenFetcher:
         """Initialize the TokenFetcher with the provided username and password."""
         self.username = username
         self.password = password
+        self.info: dict | None = None
         self.session = httpx.Client(http2=True)
 
     def get_token(self):
-        """Fetch a new authentication token using the stored credentials."""
-        return TokenFetcher.login(self.username, self.password)
+        """Fetch a new authentication token using the stored credentials.
+
+        Store the intermediate account information in self.info.
+        """
+        self.info = TokenFetcher._login(self.username, self.password)
+        return self.info["token"]
 
     @staticmethod
     def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
+        return TokenFetcher._login(username, password)["token"]
+
+    @staticmethod
+    def _login(username: str, password: str) -> dict:
+        """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         )
@@ -326,7 +336,7 @@ class TokenFetcher:
         if js["code"] == 400:
             raise AccountLockedException(js["message"])
 
-        return js["result"]["token"]
+        return js["result"]
 
 
 def retry(func, filter, refresh_func):
@@ -362,7 +372,7 @@ class Client:
 
             def debug_request(request: httpx.Request):
                 body = request.content
-                if request.headers.get("Content-Type", "").startswith(
+                if body and request.headers.get("Content-Type", "").startswith(
                     "application/json"
                 ):
                     body = json.dumps(json.loads(body), ensure_ascii=False)
@@ -396,10 +406,15 @@ class Client:
             )
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
-    def _post(self, url, payload):
+    def _post(self, url, payload, params: dict | None = None):
+        if params is not None:
+            params = params.copy()
+            params.update({"gatewayId": self.gateway, "lang": "en_US"})
+
         def __post():
             return self.session.post(
                 url,
+                params=params,
                 headers={"loginToken": self.token, "Content-Type": "application/json"},
                 data=payload,
             ).json()
@@ -420,8 +435,12 @@ class Client:
 
         return retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
-    def _get(self, url):
-        params = {"gatewayId": self.gateway, "lang": "en_US"}
+    def _get(self, url, params: dict | None = None):
+        if params is None:
+            params = {}
+        else:
+            params = params.copy()
+        params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
         def __get():
             return self.session.get(

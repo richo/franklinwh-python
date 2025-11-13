@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "franklinwh"
-version = "0.6.0"
+version = "0.7.0"
 authors = [
 { name="Richo Butts", email="richo@psych0tik.net" },
 ]
@@ -18,6 +18,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+bin = [
+  "jsonpickle"
+]
+build = [
+  "build",
+  "twine",
+]
 test = [
   "pytest"
 ]
