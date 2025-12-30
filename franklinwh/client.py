@@ -295,10 +295,11 @@ class GatewayOfflineException(Exception):
 class TokenFetcher:
     """Fetches and refreshes authentication tokens for FranklinWH API."""
 
-    def __init__(self, username: str, password: str) -> None:
+    def __init__(self, username: str, password: str, **kwargs) -> None:
         """Initialize the TokenFetcher with the provided username and password."""
         self.username = username
         self.password = password
+        self.session = kwargs.get("session")
         self.info: dict | None = None
 
     async def get_token(self):
@@ -306,16 +307,20 @@ class TokenFetcher:
 
         Store the intermediate account information in self.info.
         """
-        self.info = await TokenFetcher._login(self.username, self.password)
+        self.info = await TokenFetcher._login(
+            self.username, self.password, self.session or httpx.AsyncClient(http2=True)
+        )
         return self.info["token"]
 
     @staticmethod
     async def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
-        return (await TokenFetcher._login(username, password))["token"]
+        return (
+            await TokenFetcher._login(username, password, httpx.AsyncClient(http2=True))
+        )["token"]
 
     @staticmethod
-    async def _login(username: str, password: str) -> dict:
+    async def _login(username: str, password: str, session: httpx.AsyncClient) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
@@ -326,8 +331,7 @@ class TokenFetcher:
             "lang": "en_US",
             "type": 1,
         }
-        async with httpx.AsyncClient(http2=True) as client:
-            res = await client.post(url, data=form, timeout=10)
+        res = await session.post(url, data=form, timeout=10)
         res.raise_for_status()
         js = res.json()
 
@@ -353,7 +357,11 @@ class Client:
     """Client for interacting with FranklinWH gateway API."""
 
     def __init__(
-        self, fetcher: TokenFetcher, gateway: str, url_base: str = DEFAULT_URL_BASE
+        self,
+        fetcher: TokenFetcher,
+        gateway: str,
+        url_base: str = DEFAULT_URL_BASE,
+        **kwargs,
     ) -> None:
         """Initialize the Client with the provided TokenFetcher, gateway ID, and optional URL base."""
         self.fetcher = fetcher
@@ -361,7 +369,12 @@ class Client:
         self.url_base = url_base
         self.token = ""
         self.snno = 0
-        self.session = httpx.AsyncClient(http2=True)
+        # avoid even creating a new AsyncClient unless required
+        self.session = (
+            httpx.AsyncClient(http2=True)
+            if "session" not in kwargs
+            else kwargs["session"]
+        )
 
         # to enable detailed logging add this to configuration.yaml:
         # logger:
@@ -398,13 +411,8 @@ class Client:
                 return response
 
             self.logger = logger
-            self.session = httpx.AsyncClient(
-                http2=True,
-                event_hooks={
-                    "request": [debug_request],
-                    "response": [debug_response],
-                },
-            )
+            self.session.event_hooks["request"].append(debug_request)
+            self.session.event_hooks["response"].append(debug_response)
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
