@@ -316,27 +316,30 @@ class TokenFetcher(HttpClientFactory):
 
         Store the intermediate account information in self.info.
         """
-        self.info = await TokenFetcher._login(self.username, self.password)
+        self.info = await self.fetch_token()
         return self.info["token"]
 
     @staticmethod
     async def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
-        return (await TokenFetcher._login(username, password))["token"]
+        await TokenFetcher(username, password).get_token()
 
     @staticmethod
     async def _login(username: str, password: str) -> dict:
+        await TokenFetcher(username, password).get_token()
+
+    async def fetch_token(self):
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         )
         form = {
-            "account": username,
-            "password": hashlib.md5(bytes(password, "ascii")).hexdigest(),
+            "account": self.username,
+            "password": hashlib.md5(bytes(self.password, "ascii")).hexdigest(),
             "lang": "en_US",
             "type": 1,
         }
-        async with TokenFetcher.get_client() as client:
+        async with self.get_client() as client:
             res = await client.post(url, data=form, timeout=10)
         res.raise_for_status()
         js = res.json()
