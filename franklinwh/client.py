@@ -311,9 +311,6 @@ class TokenFetcher(HttpClientFactory):
         self.password = password
         self.info: dict | None = None
 
-    def get_client(self):
-        return self.get_client()
-
     async def get_token(self):
         """Fetch a new authentication token using the stored credentials.
 
@@ -339,7 +336,7 @@ class TokenFetcher(HttpClientFactory):
             "lang": "en_US",
             "type": 1,
         }
-        async with httpx.AsyncClient(http2=True) as client:
+        async with TokenFetcher.get_client() as client:
             res = await client.post(url, data=form, timeout=10)
         res.raise_for_status()
         js = res.json()
