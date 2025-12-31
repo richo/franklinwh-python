@@ -300,7 +300,7 @@ class HttpClientFactory:
         cls.factory = (factory,)
 
     def get_client(self):
-        return self.client_factory[0]()
+        return self.factory[0]()
 
 class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
