@@ -412,13 +412,6 @@ class Client(HttpClientFactory):
                 return response
 
             self.logger = logger
-            self.session = httpx.AsyncClient(
-                http2=True,
-                event_hooks={
-                    "request": [debug_request],
-                    "response": [debug_response],
-                },
-            )
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
