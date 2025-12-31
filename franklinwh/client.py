@@ -382,6 +382,7 @@ class Client(HttpClientFactory):
         #     franklinwh: debug
 
         logger = logging.getLogger("franklinwh")
+        logger.warning("Session class: %s" % type(self.session))
         if logger.isEnabledFor(logging.DEBUG):
 
             async def debug_request(request: httpx.Request):
