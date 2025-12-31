@@ -291,8 +291,18 @@ class DeviceTimeoutException(Exception):
 class GatewayOfflineException(Exception):
     """raised when the gateway is offline."""
 
+class HttpClientFactory:
+    # If you store a function in an attribute, it becomes a bound method
+    factory = (lambda: httpx.AsyncClient(http2=True),)
 
-class TokenFetcher:
+    @classmethod
+    def set_client_factory(cls, factory):
+        cls.factory = (factory,)
+
+    def get_client(self):
+        return self.client_factory[0]()
+
+class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
 
     def __init__(self, username: str, password: str) -> None:
@@ -300,6 +310,9 @@ class TokenFetcher:
         self.username = username
         self.password = password
         self.info: dict | None = None
+
+    def get_client(self):
+        return self.get_client()
 
     async def get_token(self):
         """Fetch a new authentication token using the stored credentials.
@@ -349,7 +362,7 @@ async def retry(func, filter, refresh_func):
     return await func()
 
 
-class Client:
+class Client(HttpClientFactory):
     """Client for interacting with FranklinWH gateway API."""
 
     def __init__(
@@ -361,7 +374,7 @@ class Client:
         self.url_base = url_base
         self.token = ""
         self.snno = 0
-        self.session = httpx.AsyncClient(http2=True)
+        self.session = self.get_client()
 
         # to enable detailed logging add this to configuration.yaml:
         # logger:
