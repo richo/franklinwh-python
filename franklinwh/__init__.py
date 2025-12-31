@@ -2,7 +2,7 @@
 
 from .api import DEFAULT_URL_BASE
 from .caching_thread import CachingThread
-from .client import AccessoryType, Client, GridStatus, Mode, Stats, TokenFetcher
+from .client import AccessoryType, Client, GridStatus, Mode, Stats, TokenFetcher, HttpClientFactory
 
 __all__ = [
     "DEFAULT_URL_BASE",
@@ -10,6 +10,7 @@ __all__ = [
     "CachingThread",
     "Client",
     "GridStatus",
+    "HttpClientfactory"
     "Mode",
     "Stats",
     "TokenFetcher",
