@@ -620,8 +620,8 @@ class Client(HttpClientFactory):
         return self.snno
 
     def _build_payload(self, ty, data):
-        blob = json.dumps(data, separators=(",", ":")).encode("utf-8")
-        # crc = to_hex(zlib.crc32(blob.encode("ascii")))
+        raw = json.dumps(data, separators=(",", ":"))
+        blob = raw.encode("utf-8")
         crc = to_hex(zlib.crc32(blob))
         ts = int(time.time())
 
@@ -639,7 +639,7 @@ class Client(HttpClientFactory):
             }
         )
         # We do it this way because without a canonical way to generate JSON we can't risk reordering breaking the CRC.
-        return temp.replace('"DATA"', blob.decode("utf-8"))
+        return temp.replace('"DATA"', raw)
 
     async def _mqtt_send(self, payload):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
