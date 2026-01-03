@@ -4,6 +4,7 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -291,16 +292,28 @@ class DeviceTimeoutException(Exception):
 class GatewayOfflineException(Exception):
     """raised when the gateway is offline."""
 
+
 class HttpClientFactory:
-    # If you store a function in an attribute, it becomes a bound method
-    factory = (lambda: httpx.AsyncClient(http2=True),)
+    """Factory for creating httpx.AsyncClient."""
+
+    @staticmethod
+    async def _default_get_client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(http2=True)
+
+    factory: Callable[..., Awaitable[httpx.AsyncClient]] = _default_get_client
 
     @classmethod
-    def set_client_factory(cls, factory):
-        cls.factory = (factory,)
+    def set_client_factory(
+        cls, factory: Callable[..., Awaitable[httpx.AsyncClient]]
+    ) -> None:
+        """Set the async factory method for creating HTTP/2 clients."""
+        cls.factory = factory
 
-    def get_client(self):
-        return self.factory[0]()
+    @classmethod
+    async def get_client(cls) -> httpx.AsyncClient:
+        """Create a new httpx.AsyncClient using the configured async factory method."""
+        return await cls.factory()
+
 
 class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
@@ -311,7 +324,7 @@ class TokenFetcher(HttpClientFactory):
         self.password = password
         self.info: dict | None = None
 
-    async def get_token(self):
+    async def get_token(self) -> str:
         """Fetch a new authentication token using the stored credentials.
 
         Store the intermediate account information in self.info.
@@ -320,15 +333,11 @@ class TokenFetcher(HttpClientFactory):
         return self.info["token"]
 
     @staticmethod
-    async def login(username: str, password: str):
+    async def login(username: str, password: str) -> None:
         """Log in to the FranklinWH API and retrieve an authentication token."""
         await TokenFetcher(username, password).get_token()
 
-    @staticmethod
-    async def _login(username: str, password: str) -> dict:
-        await TokenFetcher(username, password).get_token()
-
-    async def fetch_token(self):
+    async def fetch_token(self) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
@@ -339,7 +348,7 @@ class TokenFetcher(HttpClientFactory):
             "lang": "en_US",
             "type": 1,
         }
-        async with self.get_client() as client:
+        async with await self.get_client() as client:
             res = await client.post(url, data=form, timeout=10)
         res.raise_for_status()
         js = res.json()
@@ -374,54 +383,61 @@ class Client(HttpClientFactory):
         self.url_base = url_base
         self.token = ""
         self.snno = 0
-        self.session = self.get_client()
+        self.session: httpx.AsyncClient | None = None
 
         # to enable detailed logging add this to configuration.yaml:
         # logger:
         #   logs:
         #     franklinwh: debug
 
-        logger = logging.getLogger("franklinwh")
-        logger.warning("Session class: %s" % type(self.session))
-        self.logger = logger
-        if logger.isEnabledFor(logging.DEBUG):
+        self.logger = logging.getLogger("franklinwh")
 
-            async def debug_request(request: httpx.Request):
-                body = request.content
-                if body and request.headers.get("Content-Type", "").startswith(
-                    "application/json"
-                ):
-                    body = json.dumps(json.loads(body), ensure_ascii=False)
-                self.logger.debug(
-                    "Request: %s %s %s %s",
-                    request.method,
-                    request.url,
-                    request.headers,
-                    body,
-                )
-                return request
+    async def get_client(self) -> httpx.AsyncClient:
+        """Return the session or create a new session with optional debug logging."""
+        if self.session is None:
+            self.session = await super().get_client()
+            if self.logger.isEnabledFor(logging.DEBUG):
 
-            async def debug_response(response: httpx.Response):
-                await response.aread()
-                self.logger.debug(
-                    "Response: %s %s %s %s",
-                    response.status_code,
-                    response.url,
-                    response.headers,
-                    response.json(),
-                )
-                return response
+                async def debug_request(request: httpx.Request):
+                    body = request.content
+                    if body and request.headers.get("Content-Type", "").startswith(
+                        "application/json"
+                    ):
+                        body = json.dumps(json.loads(body), ensure_ascii=False)
+                    self.logger.debug(
+                        "Request: %s %s %s %s",
+                        request.method,
+                        request.url,
+                        request.headers,
+                        body,
+                    )
+                    return request
 
+                async def debug_response(response: httpx.Response):
+                    await response.aread()
+                    self.logger.debug(
+                        "Response: %s %s %s %s",
+                        response.status_code,
+                        response.url,
+                        response.headers,
+                        response.json(),
+                    )
+                    return response
+
+                self.session.event_hooks["request"].append(debug_request)
+                self.session.event_hooks["response"].append(debug_response)
+        return self.session
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
+        session = await self.get_client()
         if params is not None:
             params = params.copy()
             params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
         async def __post():
             return (
-                await self.session.post(
+                await session.post(
                     url,
                     params=params,
                     headers={
@@ -435,9 +451,11 @@ class Client(HttpClientFactory):
         return await retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
     async def _post_form(self, url, payload):
+        session = await self.get_client()
+
         async def __post():
             return (
-                await self.session.post(
+                await session.post(
                     url,
                     headers={
                         "loginToken": self.token,
@@ -451,6 +469,7 @@ class Client(HttpClientFactory):
         return await retry(__post, lambda j: j["code"] != 401, self.refresh_token)
 
     async def _get(self, url, params: dict | None = None):
+        session = await self.get_client()
         if params is None:
             params = {}
         else:
@@ -459,7 +478,7 @@ class Client(HttpClientFactory):
 
         async def __get():
             return (
-                await self.session.get(
+                await session.get(
                     url, params=params, headers={"loginToken": self.token}
                 )
             ).json()
@@ -579,7 +598,6 @@ class Client(HttpClientFactory):
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        self.logger.warning("get_stats: Session class: %s" % type(self.session))
         data = await self._status()
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
@@ -680,7 +698,8 @@ class UnknownMethodsClient(Client):
         )
         params = {"id": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = await self.session.get(url, params=params, headers=headers)
+        session = await self.get_client()
+        res = await session.get(url, params=params, headers=headers)
         return res.json()
 
     async def get_accessory_list(self):
@@ -688,7 +707,8 @@ class UnknownMethodsClient(Client):
         url = self.url_base + "hes-gateway/terminal/getIotAccessoryList"
         params = {"gatewayId": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = await self.session.get(url, params=params, headers=headers)
+        session = await self.get_client()
+        res = await session.get(url, params=params, headers=headers)
         return res.json()
 
     async def get_equipment_list(self):
@@ -696,5 +716,6 @@ class UnknownMethodsClient(Client):
         url = self.url_base + "hes-gateway/manage/getEquipmentList"
         params = {"gatewayId": self.gateway, "lang": "en_US"}
         headers = {"loginToken": self.token}
-        res = await self.session.get(url, params=params, headers=headers)
+        session = await self.get_client()
+        res = await session.get(url, params=params, headers=headers)
         return res.json()
