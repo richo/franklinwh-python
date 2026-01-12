@@ -17,6 +17,37 @@ import httpx
 from .api import DEFAULT_URL_BASE
 
 
+class SwitchState(tuple[bool | None, bool | None, bool | None]):
+    """Represents the state of the smart switches connected to the FranklinWH gateway.
+
+    Each element in the tuple corresponds to a switch:
+        - True: Switch is ON
+        - False: Switch is OFF
+        - None: Switch state is unchanged
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, lst: list[bool | None]):
+        """Convert a list to a SwitchState tuple.
+
+        Parameters
+        ----------
+        lst : list[bool | None]
+            The list to convert.
+
+        Returns:
+        -------
+        SwitchState
+            The converted SwitchState tuple.
+        """
+        if len(lst) != 3:
+            raise ValueError(
+                "List must have exactly 3 elements to convert to SwitchState."
+            )
+        return super().__new__(cls, (lst[0], lst[1], lst[2]))
+
+
 class AccessoryType(Enum):
     """Represents the type of accessory connected to the FranklinWH gateway.
 
@@ -470,7 +501,7 @@ class Client:
         # {"code":200,"message":"Query success!","result":[],"success":true,"total":0}
         return (await self._get(url))["result"]
 
-    async def get_smart_switch_state(self):
+    async def get_smart_switch_state(self) -> SwitchState:
         """Get the current state of the smart switches."""
         # TODO(richo) This API is super in flux, both because of how vague the
         # underlying API is and also trying to figure out what to do with
@@ -478,12 +509,10 @@ class Client:
         # Whether this should use the _switch_status() API is super unclear.
         # Maybe I will reach out to FranklinWH once I have published.
         status = await self._status()
-        switches = (x == 1 for x in status["pro_load"])
-        return tuple(switches)
+        switches = [x == 1 for x in status["pro_load"]]
+        return SwitchState(switches)
 
-    async def set_smart_switch_state(
-        self, state: tuple[bool | None, bool | None, bool | None]
-    ):
+    async def set_smart_switch_state(self, state: SwitchState):
         """Set the state of the smart circuits.
 
         Setting a value in the state tuple to True will turn on that circuit,
