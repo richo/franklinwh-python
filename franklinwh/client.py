@@ -4,6 +4,7 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -572,11 +573,11 @@ class Client:
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        data = await self._status()
+        tasks = [f() for f in [self._status, self._switch_usage]]
+        data, sw_data = await asyncio.gather(*tasks)
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
             grid_status = GridStatus(1 + data["offgridreason"])
-        sw_data = await self._switch_usage()
 
         return Stats(
             Current(
