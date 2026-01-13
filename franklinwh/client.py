@@ -605,11 +605,13 @@ class Client:
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        data = await self._status()
+        tasks = [f() for f in [self._status, self._switch_usage]]
+        results = await asyncio.gather(*tasks)
+        data = results[0]
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
             grid_status = GridStatus(1 + data["offgridreason"])
-        sw_data = await self._switch_usage()
+        sw_data = results[1]
 
         return Stats(
             Current(
