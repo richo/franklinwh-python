@@ -4,8 +4,11 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+import functools
 import hashlib
 import json
 import logging
@@ -384,6 +387,33 @@ async def retry(func, filter, refresh_func):
     return await func()
 
 
+def time_cached(ttl: timedelta = timedelta(seconds=2)):
+    """Decorator to cache function results for a specified time-to-live (TTL)."""
+
+    def wrapper(func):
+        cache = {}
+
+        @functools.wraps(func)
+        async def wrapped(*args, **kwargs):
+            now = datetime.now()
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key in cache:
+                lock = cache[key][2]
+            else:
+                lock = asyncio.Lock()
+                cache[key] = (now - ttl, None, lock)
+            async with lock:
+                if now < cache[key][0]:
+                    return cache[key][1]
+                result = await func(*args, **kwargs)
+                cache[key] = (now + ttl, result, lock)
+            return result
+
+        return wrapped
+
+    return wrapper
+
+
 class Client:
     """Client for interacting with FranklinWH gateway API."""
 
@@ -559,12 +589,14 @@ class Client:
         return json.loads(data)
 
     # Sends a 203 which is a high level status
+    @time_cached()
     async def _status(self):
         payload = self._build_payload(203, {"opt": 1, "refreshData": 1})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 311 which appears to be a more specific switch command
+    @time_cached()
     async def _switch_status(self):
         payload = self._build_payload(311, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -572,6 +604,7 @@ class Client:
 
     # Sends a 353 which grabs real-time smart-circuit load information
     # https://github.com/richo/homeassistant-franklinwh/issues/27#issuecomment-2714422732
+    @time_cached()
     async def _switch_usage(self):
         payload = self._build_payload(353, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -609,11 +642,13 @@ class Client:
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        data = await self._status()
+        tasks = [f() for f in [self._status, self._switch_usage]]
+        results = await asyncio.gather(*tasks)
+        data = results[0]
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
             grid_status = GridStatus(1 + data["offgridreason"])
-        sw_data = await self._switch_usage()
+        sw_data = results[1]
 
         return Stats(
             Current(
