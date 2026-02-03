@@ -4,6 +4,8 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+from __future__ import annotations
+
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -91,6 +93,7 @@ def empty_stats():
         Current(
             0.0,
             0.0,
+            False,
             0.0,
             0.0,
             0.0,
@@ -133,6 +136,30 @@ class GridStatus(Enum):
     DOWN = 1
     OFF = 2
 
+    @staticmethod
+    def from_offgridreason(value: int | None) -> GridStatus:
+        """Convert an offgridreason value to a GridStatus.
+
+        Parameters
+        ----------
+        value : int | None
+            The offgridreason value to convert.
+
+        Returns:
+        -------
+        GridStatus
+            The corresponding GridStatus.
+        """
+        match value:
+            case None | -1:
+                return GridStatus.NORMAL
+            case 0:
+                return GridStatus.DOWN
+            case 1:
+                return GridStatus.OFF
+            case _:
+                raise ValueError(f"Unknown offgridreason value: {value}")
+
 
 @dataclass
 class Current:
@@ -140,6 +167,7 @@ class Current:
 
     solar_production: float
     generator_production: float
+    generator_enabled: bool
     battery_use: float
     grid_use: float
     home_load: float
@@ -642,18 +670,19 @@ class Client:
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        tasks = [f() for f in [self._status, self._switch_usage]]
+        tasks = [f() for f in [self.get_composite_info, self._switch_usage]]
         results = await asyncio.gather(*tasks)
-        data = results[0]
+        data = results[0]["runtimeData"]
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
-            grid_status = GridStatus(1 + data["offgridreason"])
+            grid_status = GridStatus.from_offgridreason(data["offgridreason"])
         sw_data = results[1]
 
         return Stats(
             Current(
                 data["p_sun"],
                 data["p_gen"],
+                data["genStat"] > 1,
                 data["p_fhp"],
                 data["p_uti"],
                 data["p_load"],
@@ -730,6 +759,24 @@ class Client:
             "offgridSet": int(status != GridStatus.NORMAL),
             "offgridSoc": soc,
         }
+        await self._post(url, json.dumps(payload))
+
+    async def get_composite_info(self):
+        """Get composite information about the FranklinWH gateway."""
+        url = self.url_base + "hes-gateway/terminal/getDeviceCompositeInfo"
+        params = {"refreshFlag": 1}
+        return (await self._get(url, params))["result"]
+
+    async def set_generator(self, enabled: bool):
+        """Enable or disable the generator on the FranklinWH gateway.
+
+        Parameters
+        ----------
+        enabled : bool
+            True to enable the generator, False to disable it.
+        """
+        url = self.url_base + "hes-gateway/terminal/updateIotGenerator"
+        payload = {"manuSw": 1 + int(enabled), "gatewayId": self.gateway, "opt": 1}
         await self._post(url, json.dumps(payload))
 
 
