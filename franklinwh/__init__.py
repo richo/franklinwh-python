@@ -13,6 +13,7 @@ from .client import (
     Stats,
     SwitchState,
     TokenFetcher,
+    WorkMode,
 )
 
 __all__ = [
@@ -28,4 +29,5 @@ __all__ = [
     "Stats",
     "SwitchState",
     "TokenFetcher",
+    "WorkMode",
 ]

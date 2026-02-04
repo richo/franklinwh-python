@@ -109,7 +109,7 @@ async def main():
         "_switch_usage": None,
         "get_home_gateway_list": None,
         "get_accessories": None,
-        # "get_mode": None, # KeyError: 21669
+        "get_mode": None,
         "get_smart_switch_state": None,
         "get_stats": None,
     }

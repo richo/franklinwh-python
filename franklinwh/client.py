@@ -7,13 +7,14 @@ and retrieve statistics from FranklinWH energy gateway devices.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import json
 import logging
 import time
+from typing import Any, Self
 import zlib
 
 import httpx
@@ -218,15 +219,109 @@ class Stats:
     totals: Totals
 
 
-MODE_TIME_OF_USE = "time_of_use"
-MODE_SELF_CONSUMPTION = "self_consumption"
-MODE_EMERGENCY_BACKUP = "emergency_backup"
+class Id(Enum):
+    """Add identification to an enum."""
 
-MODE_MAP = {
-    9322: MODE_TIME_OF_USE,
-    9323: MODE_SELF_CONSUMPTION,
-    9324: MODE_EMERGENCY_BACKUP,
-}
+    id: int
+
+    def __new__(cls, title, id) -> Self:
+        """Add identification to an enum."""
+        obj = object.__new__(cls)
+        obj._value_ = title
+        obj.id = id
+        return obj
+
+    @classmethod
+    def ids(cls) -> Generator[int]:
+        """Generate the ids of the enum members."""
+        for item in cls:
+            yield item.id
+
+    @classmethod
+    def names(cls) -> Generator[str]:
+        """Generate the names of the enum members."""
+        for item in cls:
+            yield item.name
+
+    @classmethod
+    def values(cls) -> Generator[str]:
+        """Generate the values of the enum members."""
+        for item in cls:
+            yield item.value
+
+    @classmethod
+    def from_id(cls, id: int) -> Self:
+        """Get the enum member corresponding to the given id.
+
+        Parameters
+        ----------
+        id : int
+            The id to look up.
+
+        Returns:
+        -------
+        Self
+            The enum member corresponding to the given id.
+
+        Raises:
+        ------
+        ValueError
+            If no enum member has the given id.
+        """
+        for item in cls:
+            if item.id == id:
+                return item
+        raise ValueError(f"No {cls.__name__} with id {id}")
+
+    @classmethod
+    def from_value(cls, value: str) -> Self:
+        """Get the enum member corresponding to the given value.
+
+        Parameters
+        ----------
+        value : str
+            The value to look up.
+
+        Returns:
+        -------
+        Self
+            The enum member corresponding to the given value.
+
+        Raises:
+        ------
+        ValueError
+            If no enum member has the given value.
+        """
+        for item in cls:
+            if item.value == value:
+                return item
+        raise ValueError(f"No {cls.__name__} with value {value}")
+
+
+class WorkMode(Id):
+    """Represents the workMode values of the FranklinWH gateway.
+
+    These are the only operating mode constants in the FranklinWH API.
+
+    Attributes:
+        TIME_OF_USE (int): Time of Use mode, id = 1.
+        SELF_CONSUMPTION (int): Self-Consumption mode, id = 2.
+        EMERGENCY_BACKUP (int): Emergency Backup mode, id = 3.
+
+    These are artificial and controlled by API, support or provider.
+
+    Attributes:
+        GENERATOR (int): Generator mode, id = 7.
+        DEBUG (int): Debug mode, id = 8.
+        VPP_MODE (int): VPP Mode, id = 9.
+    """
+
+    TIME_OF_USE = ("Time Of Use (TOU)", 1)
+    SELF_CONSUMPTION = ("Self-Consumption", 2)
+    EMERGENCY_BACKUP = ("Emergency Backup", 3)
+    GENERATOR = ("Generator", 7)
+    DEBUG = ("Debug", 8)
+    VPP_MODE = ("VPP Mode", 9)
 
 
 class Mode:
@@ -235,29 +330,65 @@ class Mode:
     Provides static methods to create specific modes (time of use, emergency backup, self consumption)
     and generates payloads for API requests to set the gateway's operating mode.
 
-    Attributes:
-    ----------
-    soc : int
-        The state of charge value for the mode.
-    currendId : int | None
-        The current mode identifier.
-    workMode : int | None
-        The work mode value.
-
     Methods:
     -------
-    time_of_use(soc=20)
+    time_of_use(optional soc)
         Create a time of use mode instance.
-    emergency_backup(soc=100)
+    emergency_backup(optional soc)
         Create an emergency backup mode instance.
-    self_consumption(soc=20)
+    self_consumption(optional soc)
         Create a self consumption mode instance.
     payload(gateway)
         Generate the payload dictionary for API requests.
     """
 
-    @staticmethod
-    def time_of_use(soc=20):
+    _modes: dict[int, Any] = {
+        mode.id: {  # compatible with result of getGatewayTouListV2
+            "id": mode.id,
+            "oldIndex": 3,
+            "name": mode.value,
+            "soc": 100.0,
+            "maxSoc": 100.0,
+            "minSoc": 100.0,
+            "dischargeDepthSoc": None,
+            "editSocFlag": False,
+            "multiSOCFlag": False,
+            "workMode": mode.id,
+            "energyIncentivesType": 0,
+            "electricityType": 1,
+            "displayFlag": None,
+        }
+        for mode in WorkMode
+    }
+
+    @classmethod
+    @time_cached(timedelta(hours=1))  # eventually consistent with changes via app
+    async def get_modes(cls, client: Client) -> dict[int, Any]:
+        """Get the available modes for the FranklinWH gateway.
+
+        MUST be called once before using other methods, e.g., through get_mode().
+
+        Parameters
+        ----------
+        client : Client
+            The FranklinWH client instance.
+
+        Returns:
+        -------
+        dict[int, Any]
+            A dictionary of available modes keyed by workMode.
+
+        get_modes[TIME_OF_USE]["name"] returns the actual rate name
+        """
+        body = await client._post(  # noqa: SLF001
+            DEFAULT_URL_BASE + "hes-gateway/terminal/tou/getGatewayTouListV2", None
+        )
+        for v in body["result"]["list"]:
+            cls._modes[v["workMode"]] = v
+        return cls._modes
+
+    @classmethod
+    def time_of_use(cls, soc: int | None = None) -> Mode:
         """Create a time of use mode instance.
 
         Parameters
@@ -270,13 +401,12 @@ class Mode:
         Mode
             An instance of Mode configured for time of use.
         """
-        mode = Mode(soc)
-        mode.currendId = 9322
-        mode.workMode = 1
-        return mode
+        if soc is None:
+            soc = 20
+        return Mode(WorkMode.TIME_OF_USE.id, soc)
 
-    @staticmethod
-    def emergency_backup(soc=100):
+    @classmethod
+    def emergency_backup(cls, soc: int | None = None) -> Mode:
         """Create an emergency backup mode instance.
 
         Parameters
@@ -289,13 +419,12 @@ class Mode:
         Mode
             An instance of Mode configured for emergency backup.
         """
-        mode = Mode(soc)
-        mode.currendId = 9324
-        mode.workMode = 3
-        return mode
+        if soc is None:
+            soc = 100
+        return Mode(WorkMode.EMERGENCY_BACKUP.id, soc)
 
-    @staticmethod
-    def self_consumption(soc=20):
+    @classmethod
+    def self_consumption(cls, soc: int | None = None) -> Mode:
         """Create a self consumption mode instance.
 
         Parameters
@@ -308,12 +437,46 @@ class Mode:
         Mode
             An instance of Mode configured for self consumption.
         """
-        mode = Mode(soc)
-        mode.currendId = 9323
-        mode.workMode = 2
-        return mode
+        if soc is None:
+            soc = 20
+        return Mode(WorkMode.SELF_CONSUMPTION.value, soc)
 
-    def __init__(self, soc: int) -> None:
+    @classmethod
+    def vpp_mode(cls, _: int | None = None) -> Mode:
+        """Create a virtual power plant mode instance.
+
+        Returns:
+        -------
+        Mode
+            An instance of Mode configured for virtual power plant mode.
+        """
+        return Mode(WorkMode.VPP_MODE.value, 100)
+
+    @classmethod
+    def get_by_name(cls, name: str) -> Mode:
+        """Get a Mode instance by its name.
+
+        Parameters
+        ----------
+        name : str
+            The name of the mode.
+
+        Returns:
+        -------
+        Mode
+            An instance of Mode corresponding to the given name.
+
+        Raises:
+        ------
+        ValueError
+            If the mode name is unknown.
+        """
+        for mode in WorkMode:
+            if mode.value == name:
+                return Mode(mode.id, cls._modes[mode.id].get("soc"))
+        raise ValueError(f"Unknown mode name: {name}")
+
+    def __init__(self, workMode: int, soc: int) -> None:
         """Initialize a Mode instance with the given state of charge.
 
         Parameters
@@ -321,32 +484,39 @@ class Mode:
         soc : int
             The state of charge value for the mode.
         """
+        self.workMode = workMode
         self.soc = soc
-        self.currendId = None
-        self.workMode = None
+        mode = self._modes[workMode]
+        self.name = WorkMode.from_id(workMode).value
+        self.currendId = mode["id"]
+        self.oldIndex = mode["oldIndex"]
 
-    def payload(self, gateway) -> dict:
+    def payload(self, gateway, soc: int | None = None) -> dict:
         """Generate the payload dictionary for API requests to set the gateway's operating mode.
 
         Parameters
         ----------
         gateway : str
             The gateway identifier.
+        soc : int, optional
+            New State of Charge value.
 
         Returns:
         -------
         dict
             The payload dictionary for the API request.
         """
-        return {
+        params = {
             "currendId": str(self.currendId),
             "gatewayId": gateway,
             "lang": "EN_US",
-            "oldIndex": "1",  # Who knows if this matters
-            "soc": str(self.soc),
+            "oldIndex": str(self.oldIndex),
             "stromEn": "1",
             "workMode": str(self.workMode),
         }
+        if soc is not None:
+            params["soc"] = str(soc)
+        return params
 
 
 class SwitchState(tuple[bool | None, bool | None, bool | None]):
@@ -542,9 +712,11 @@ class Client(HttpClientFactory):
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
-        if params is not None:
+        if params is None:
+            params = {}
+        else:
             params = params.copy()
-            params.update({"gatewayId": self.gateway, "lang": "en_US"})
+        params.update({"gatewayId": self.gateway, "lang": "en_US"})
 
         async def __post():
             return (
@@ -675,32 +847,47 @@ class Client(HttpClientFactory):
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
-    async def set_mode(self, mode):
+    async def set_mode(self, mode: Mode):
         """Set the operating mode of the FranklinWH gateway."""
-        # Time of use:
-        # currendId=9322&gatewayId=___&lang=EN_US&oldIndex=3&soc=15&stromEn=1&workMode=1
-
-        # Emergency Backup:
-        # currendId=9324&gatewayId=___&lang=EN_US&oldIndex=1&soc=100&stromEn=1&workMode=3
-
-        # Self consumption
-        # currendId=9323&gatewayId=___&lang=EN_US&oldIndex=2&soc=20&stromEn=1&workMode=2
-        url = DEFAULT_URL_BASE + "hes-gateway/terminal/tou/updateTouMode"
+        if mode.workMode > WorkMode.EMERGENCY_BACKUP.id:
+            raise ValueError(mode.name + " cannot be set directly.")
+        url = self.url_base + "hes-gateway/terminal/tou/updateTouModeV2"
         payload = mode.payload(self.gateway)
         await self._post_form(url, payload)
+        Mode.get_modes.clear()
 
-    async def get_mode(self):
+    async def get_mode(self) -> Mode:
         """Get the current operating mode of the FranklinWH gateway."""
-        status = await self._switch_status()
-        # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
-        mode_name = MODE_MAP[status["runingMode"]]
-        if mode_name == MODE_TIME_OF_USE:
-            return (mode_name, status["touMinSoc"])
-        if mode_name == MODE_SELF_CONSUMPTION:
-            return (mode_name, status["selfMinSoc"])
-        if mode_name == MODE_EMERGENCY_BACKUP:
-            return (mode_name, status["backupMaxSoc"])
-        raise RuntimeError(f"Unknown mode {status['runingMode']}")
+        modes = await Mode.get_modes(self)
+        status = await self.get_composite_info()
+        for v in modes.values():
+            if v["id"] == status["runtimeData"]["mode"]:
+                return Mode(v["workMode"], v.get("soc"))
+        self.logger.warning(
+            "Unknown mode ID: %s, please report at %s",
+            status["runtimeData"]["mode"],
+            ISSUES_URL,
+        )
+        return modes[status["currentWorkMode"]]
+
+    async def set_backup_reserve(self, soc: int) -> None:
+        """Set the backup reserve for the FranklinWH gateway.
+
+        Parameters
+        ----------
+        soc : int
+            The desired State of Charge percentage to set for backup reserve.
+        """
+        mode = await self.get_mode()
+        if mode.workMode >= WorkMode.EMERGENCY_BACKUP.id:
+            raise ValueError("Backup Reserve cannot be set in " + mode.name + ".")
+        url = self.url_base + "hes-gateway/terminal/tou/updateSocV2"
+        params = {
+            "soc": soc,
+            "workMode": mode.workMode,
+        }
+        await self._post(url, None, params)
+        Mode.get_modes.clear()
 
     async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.
@@ -708,8 +895,8 @@ class Client(HttpClientFactory):
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
         tasks = [f() for f in [self.get_composite_info, self._switch_usage]]
-        info, sw_data = await asyncio.gather(*tasks)
-        data = info["runtimeData"]
+        data, sw_data = await asyncio.gather(*tasks)
+        data = data["runtimeData"]
         if data is None:
             raise InvalidDataException
 
