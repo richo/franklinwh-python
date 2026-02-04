@@ -22,6 +22,33 @@ import httpx
 from .api import DEFAULT_URL_BASE
 
 
+def time_cached(ttl: timedelta = timedelta(seconds=2)):
+    """Decorator to cache function results for a specified time-to-live (TTL)."""
+
+    def wrapper(func):
+        cache = {}
+
+        @functools.wraps(func)
+        async def wrapped(*args, **kwargs):
+            now = datetime.now()
+            key = (func.__name__, args, frozenset(kwargs.items()))
+            if key in cache:
+                lock = cache[key][2]
+            else:
+                lock = asyncio.Lock()
+                cache[key] = (now - ttl, None, lock)
+            async with lock:
+                if now < cache[key][0]:
+                    return cache[key][1]
+                result = await func(*args, **kwargs)
+                cache[key] = (now + ttl, result, lock)
+            return result
+
+        return wrapped
+
+    return wrapper
+
+
 class SwitchState(tuple[bool | None, bool | None, bool | None]):
     """Represents the state of the smart switches connected to the FranklinWH gateway.
 
@@ -413,33 +440,6 @@ async def retry(func, filter, refresh_func):
         return res
     await refresh_func()
     return await func()
-
-
-def time_cached(ttl: timedelta = timedelta(seconds=2)):
-    """Decorator to cache function results for a specified time-to-live (TTL)."""
-
-    def wrapper(func):
-        cache = {}
-
-        @functools.wraps(func)
-        async def wrapped(*args, **kwargs):
-            now = datetime.now()
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            if key in cache:
-                lock = cache[key][2]
-            else:
-                lock = asyncio.Lock()
-                cache[key] = (now - ttl, None, lock)
-            async with lock:
-                if now < cache[key][0]:
-                    return cache[key][1]
-                result = await func(*args, **kwargs)
-                cache[key] = (now + ttl, result, lock)
-            return result
-
-        return wrapped
-
-    return wrapper
 
 
 class Client:
