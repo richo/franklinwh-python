@@ -3,3 +3,4 @@
 from typing import Final
 
 DEFAULT_URL_BASE: Final[str] = "https://energy.franklinwh.com/"
+ISSUES_URL: Final[str] = "https://github.com/richo/franklinwh-python/issues"
