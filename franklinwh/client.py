@@ -4,6 +4,7 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -291,16 +292,27 @@ class DeviceTimeoutException(Exception):
 class GatewayOfflineException(Exception):
     """raised when the gateway is offline."""
 
+
 class HttpClientFactory:
-    # If you store a function in an attribute, it becomes a bound method
-    factory = (lambda: httpx.AsyncClient(http2=True),)
+    """Factory to create AsyncClient."""
+
+    @staticmethod
+    def default_get_client() -> httpx.AsyncClient:
+        """Create an HTTP/2 AsyncClient."""
+        return httpx.AsyncClient(http2=True)
+
+    factory: Callable[..., httpx.AsyncClient] = default_get_client
 
     @classmethod
-    def set_client_factory(cls, factory):
-        cls.factory = (factory,)
+    def set_client_factory(cls, factory: Callable[..., httpx.AsyncClient]) -> None:
+        """Set AsyncClient factory method."""
+        cls.factory = factory
 
-    def get_client(self):
-        return self.factory[0]()
+    @classmethod
+    def get_client(cls) -> httpx.AsyncClient:
+        """Create an AsyncClient via factory method."""
+        return cls.factory()
+
 
 class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
@@ -324,11 +336,7 @@ class TokenFetcher(HttpClientFactory):
         """Log in to the FranklinWH API and retrieve an authentication token."""
         await TokenFetcher(username, password).get_token()
 
-    @staticmethod
-    async def _login(username: str, password: str) -> dict:
-        await TokenFetcher(username, password).get_token()
-
-    async def fetch_token(self):
+    async def fetch_token(self) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
