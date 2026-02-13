@@ -389,10 +389,9 @@ class Client(HttpClientFactory):
         #   logs:
         #     franklinwh: debug
 
-        logger = logging.getLogger("franklinwh")
-        logger.warning("Session class: %s" % type(self.session))
-        self.logger = logger
-        if logger.isEnabledFor(logging.DEBUG):
+        self.logger = logging.getLogger("franklinwh")
+        self.logger.debug("Session class: %s", type(self.session))
+        if self.logger.isEnabledFor(logging.DEBUG):
 
             async def debug_request(request: httpx.Request):
                 body = request.content
@@ -420,6 +419,8 @@ class Client(HttpClientFactory):
                 )
                 return response
 
+            self.session.event_hooks["request"].append(debug_request)
+            self.session.event_hooks["response"].append(debug_response)
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
@@ -587,7 +588,6 @@ class Client(HttpClientFactory):
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        self.logger.warning("get_stats: Session class: %s" % type(self.session))
         data = await self._status()
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
