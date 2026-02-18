@@ -4,6 +4,7 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -291,16 +292,27 @@ class DeviceTimeoutException(Exception):
 class GatewayOfflineException(Exception):
     """raised when the gateway is offline."""
 
+
 class HttpClientFactory:
-    # If you store a function in an attribute, it becomes a bound method
-    factory = (lambda: httpx.AsyncClient(http2=True),)
+    """Factory to create AsyncClient."""
+
+    @staticmethod
+    def default_get_client() -> httpx.AsyncClient:
+        """Create an HTTP/2 AsyncClient."""
+        return httpx.AsyncClient(http2=True)
+
+    factory: Callable[..., httpx.AsyncClient] = default_get_client
 
     @classmethod
-    def set_client_factory(cls, factory):
-        cls.factory = (factory,)
+    def set_client_factory(cls, factory: Callable[..., httpx.AsyncClient]) -> None:
+        """Set AsyncClient factory method."""
+        cls.factory = factory
 
-    def get_client(self):
-        return self.factory[0]()
+    @classmethod
+    def get_client(cls) -> httpx.AsyncClient:
+        """Create an AsyncClient via factory method."""
+        return cls.factory()
+
 
 class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
@@ -324,11 +336,7 @@ class TokenFetcher(HttpClientFactory):
         """Log in to the FranklinWH API and retrieve an authentication token."""
         await TokenFetcher(username, password).get_token()
 
-    @staticmethod
-    async def _login(username: str, password: str) -> dict:
-        await TokenFetcher(username, password).get_token()
-
-    async def fetch_token(self):
+    async def fetch_token(self) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
@@ -381,10 +389,9 @@ class Client(HttpClientFactory):
         #   logs:
         #     franklinwh: debug
 
-        logger = logging.getLogger("franklinwh")
-        logger.warning("Session class: %s" % type(self.session))
-        self.logger = logger
-        if logger.isEnabledFor(logging.DEBUG):
+        self.logger = logging.getLogger("franklinwh")
+        self.logger.debug("Session class: %s", type(self.session))
+        if self.logger.isEnabledFor(logging.DEBUG):
 
             async def debug_request(request: httpx.Request):
                 body = request.content
@@ -412,6 +419,8 @@ class Client(HttpClientFactory):
                 )
                 return response
 
+            self.session.event_hooks["request"].append(debug_request)
+            self.session.event_hooks["response"].append(debug_response)
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
@@ -579,7 +588,6 @@ class Client(HttpClientFactory):
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
-        self.logger.warning("get_stats: Session class: %s" % type(self.session))
         data = await self._status()
         grid_status: GridStatus = GridStatus.NORMAL
         if "offgridreason" in data:
@@ -620,8 +628,8 @@ class Client(HttpClientFactory):
         return self.snno
 
     def _build_payload(self, ty, data):
-        blob = json.dumps(data, separators=(",", ":")).encode("utf-8")
-        # crc = to_hex(zlib.crc32(blob.encode("ascii")))
+        raw = json.dumps(data, separators=(",", ":"))
+        blob = raw.encode("utf-8")
         crc = to_hex(zlib.crc32(blob))
         ts = int(time.time())
 
@@ -639,7 +647,7 @@ class Client(HttpClientFactory):
             }
         )
         # We do it this way because without a canonical way to generate JSON we can't risk reordering breaking the CRC.
-        return temp.replace('"DATA"', blob.decode("utf-8"))
+        return temp.replace('"DATA"', raw)
 
     async def _mqtt_send(self, payload):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
