@@ -660,6 +660,19 @@ class Client:
         }
         await self._post(url, json.dumps(payload))
 
+    async def get_home_gateway_list(self):
+        """Get the list of Home Gateways associated with the account.
+
+        Returns:
+        -------
+        JSON payload containing the list of Home Gateway information
+        - email account linked (binded), location, timezone, etc.
+        - number of aGates, status (online/offline), model, firmware version, etc
+        - connectivity type (4G/WiFi/Ethernet), etc
+        """
+        url = DEFAULT_URL_BASE + "hes-gateway/terminal/getHomeGatewayList"
+        return (await self._get(url))["result"]
+
 
 class UnknownMethodsClient(Client):
     """A client that also implements some methods that don't obviously work, for research purposes."""
