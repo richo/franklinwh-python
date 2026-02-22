@@ -4,8 +4,8 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
-from collections.abc import Callable
 from __future__ import annotations
+from collections.abc import Callable
 
 import asyncio
 from dataclasses import dataclass
