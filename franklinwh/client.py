@@ -4,6 +4,7 @@ This module provides classes and functions to authenticate, send commands,
 and retrieve statistics from FranklinWH energy gateway devices.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -326,7 +327,28 @@ class GatewayOfflineException(Exception):
     """raised when the gateway is offline."""
 
 
-class TokenFetcher:
+class HttpClientFactory:
+    """Factory to create AsyncClient."""
+
+    @staticmethod
+    def default_get_client() -> httpx.AsyncClient:
+        """Create an HTTP/2 AsyncClient."""
+        return httpx.AsyncClient(http2=True)
+
+    factory: Callable[..., httpx.AsyncClient] = default_get_client
+
+    @classmethod
+    def set_client_factory(cls, factory: Callable[..., httpx.AsyncClient]) -> None:
+        """Set AsyncClient factory method."""
+        cls.factory = factory
+
+    @classmethod
+    def get_client(cls) -> httpx.AsyncClient:
+        """Create an AsyncClient via factory method."""
+        return cls.factory()
+
+
+class TokenFetcher(HttpClientFactory):
     """Fetches and refreshes authentication tokens for FranklinWH API."""
 
     def __init__(self, username: str, password: str) -> None:
@@ -340,27 +362,26 @@ class TokenFetcher:
 
         Store the intermediate account information in self.info.
         """
-        self.info = await TokenFetcher._login(self.username, self.password)
+        self.info = await self.fetch_token()
         return self.info["token"]
 
     @staticmethod
     async def login(username: str, password: str):
         """Log in to the FranklinWH API and retrieve an authentication token."""
-        return (await TokenFetcher._login(username, password))["token"]
+        await TokenFetcher(username, password).get_token()
 
-    @staticmethod
-    async def _login(username: str, password: str) -> dict:
+    async def fetch_token(self) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
         url = (
             DEFAULT_URL_BASE + "hes-gateway/terminal/initialize/appUserOrInstallerLogin"
         )
         form = {
-            "account": username,
-            "password": hashlib.md5(bytes(password, "ascii")).hexdigest(),
+            "account": self.username,
+            "password": hashlib.md5(bytes(self.password, "ascii")).hexdigest(),
             "lang": "en_US",
             "type": 1,
         }
-        async with httpx.AsyncClient(http2=True) as client:
+        async with self.get_client() as client:
             res = await client.post(url, data=form, timeout=10)
         res.raise_for_status()
         js = res.json()
@@ -383,7 +404,7 @@ async def retry(func, filter, refresh_func):
     return await func()
 
 
-class Client:
+class Client(HttpClientFactory):
     """Client for interacting with FranklinWH gateway API."""
 
     def __init__(
@@ -395,15 +416,16 @@ class Client:
         self.url_base = url_base
         self.token = ""
         self.snno = 0
-        self.session = httpx.AsyncClient(http2=True)
+        self.session = self.get_client()
 
         # to enable detailed logging add this to configuration.yaml:
         # logger:
         #   logs:
         #     franklinwh: debug
 
-        logger = logging.getLogger("franklinwh")
-        if logger.isEnabledFor(logging.DEBUG):
+        self.logger = logging.getLogger("franklinwh")
+        self.logger.debug("Session class: %s", type(self.session))
+        if self.logger.isEnabledFor(logging.DEBUG):
 
             async def debug_request(request: httpx.Request):
                 body = request.content
@@ -431,14 +453,8 @@ class Client:
                 )
                 return response
 
-            self.logger = logger
-            self.session = httpx.AsyncClient(
-                http2=True,
-                event_hooks={
-                    "request": [debug_request],
-                    "response": [debug_response],
-                },
-            )
+            self.session.event_hooks["request"].append(debug_request)
+            self.session.event_hooks["response"].append(debug_response)
 
     # TODO(richo) Setup timeouts and deal with them gracefully.
     async def _post(self, url, payload, params: dict | None = None):
@@ -644,8 +660,8 @@ class Client:
         return self.snno
 
     def _build_payload(self, ty, data):
-        blob = json.dumps(data, separators=(",", ":")).encode("utf-8")
-        # crc = to_hex(zlib.crc32(blob.encode("ascii")))
+        raw = json.dumps(data, separators=(",", ":"))
+        blob = raw.encode("utf-8")
         crc = to_hex(zlib.crc32(blob))
         ts = int(time.time())
 
@@ -663,7 +679,7 @@ class Client:
             }
         )
         # We do it this way because without a canonical way to generate JSON we can't risk reordering breaking the CRC.
-        return temp.replace('"DATA"', blob.decode("utf-8"))
+        return temp.replace('"DATA"', raw)
 
     async def _mqtt_send(self, payload):
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/sendMqtt"
