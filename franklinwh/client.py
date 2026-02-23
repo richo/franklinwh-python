@@ -5,11 +5,13 @@ and retrieve statistics from FranklinWH energy gateway devices.
 """
 
 from __future__ import annotations
-from collections.abc import Callable
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
+from functools import wraps
 import hashlib
 import json
 import logging
@@ -19,6 +21,31 @@ import zlib
 import httpx
 
 from .api import DEFAULT_URL_BASE
+
+
+def time_cached(ttl: timedelta = timedelta(seconds=2)):
+    """Decorator to cache function results for a specified time-to-live (TTL)."""
+
+    def wrapper(func):
+        cache = {}
+        lock = asyncio.Lock()
+
+        @wraps(func)
+        async def wrapped(*args, **kwargs):
+            async with lock:
+                now = datetime.now()
+                for key, value in cache.copy().items():
+                    if now > value[0]:
+                        del cache[key]
+                key = (func.__name__, args, frozenset(kwargs.items()))
+                if key not in cache:
+                    cache[key] = (now + ttl, await func(*args, **kwargs))
+                return cache[key][1]
+
+        setattr(wrapped, "clear", cache.clear)
+        return wrapped
+
+    return wrapper
 
 
 class AccessoryType(Enum):
@@ -599,12 +626,14 @@ class Client(HttpClientFactory):
         return json.loads(data)
 
     # Sends a 203 which is a high level status
+    @time_cached()
     async def _status(self):
         payload = self._build_payload(203, {"opt": 1, "refreshData": 1})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 311 which appears to be a more specific switch command
+    @time_cached()
     async def _switch_status(self):
         payload = self._build_payload(311, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -612,6 +641,7 @@ class Client(HttpClientFactory):
 
     # Sends a 353 which grabs real-time smart-circuit load information
     # https://github.com/richo/homeassistant-franklinwh/issues/27#issuecomment-2714422732
+    @time_cached()
     async def _switch_usage(self):
         payload = self._build_payload(353, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -739,6 +769,7 @@ class Client(HttpClientFactory):
         }
         await self._post(url, json.dumps(payload))
 
+    @time_cached()
     async def get_composite_info(self):
         """Get composite information about the FranklinWH gateway."""
         url = self.url_base + "hes-gateway/terminal/getDeviceCompositeInfo"
