@@ -28,20 +28,19 @@ def time_cached(ttl: timedelta = timedelta(seconds=2)):
 
     def wrapper(func):
         cache = {}
+        lock = asyncio.Lock()
 
         @wraps(func)
         async def wrapped(*args, **kwargs):
-            now = datetime.now()
-            key = (func.__name__, args, frozenset(kwargs.items()))
-            if key not in cache:
-                cache[key] = (now - ttl, None, asyncio.Lock())
-            lock = cache[key][2]
             async with lock:
-                if now < cache[key][0]:
-                    return cache[key][1]
-                result = await func(*args, **kwargs)
-                cache[key] = (now + ttl, result, lock)
-            return result
+                now = datetime.now()
+                for key, value in cache.copy().items():
+                    if now > value[0]:
+                        del cache[key]
+                key = (func.__name__, args, frozenset(kwargs.items()))
+                if key not in cache:
+                    cache[key] = (now + ttl, await func(*args, **kwargs))
+                return cache[key][1]
 
         setattr(wrapped, "clear", cache.clear)
         return wrapped
