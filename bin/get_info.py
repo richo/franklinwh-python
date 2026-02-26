@@ -49,6 +49,7 @@ async def main():
     dayTime = time.strftime("%Y-%m-%d")
 
     functions = {
+        "info": None,
         "api-energy/electric/getFhpElectricData": {"type": 1, "dayTime": dayTime},
         "hes-gateway/common/getAccessoryList": None,
         "hes-gateway/common/getPageByTypeList": {
@@ -67,7 +68,6 @@ async def main():
         "hes-gateway/terminal/getDeviceCompositeInfo": {"refreshFlag": 0},
         "hes-gateway/terminal/getDeviceInfoV2": None,
         "hes-gateway/terminal/getGatewaySystemSetting": None,
-        "hes-gateway/terminal/getHomeGatewayList": None,
         "hes-gateway/terminal/getHotSpotInfo/v2": None,
         "hes-gateway/terminal/getPersonalInfo": None,
         "hes-gateway/terminal/getShowTip": {"type": 1},
@@ -114,7 +114,9 @@ async def main():
         "get_stats": None,
     }
 
-    async def get(func: str) -> None:
+    async def get(func: str):
+        if func == "info":
+            return fetcher.info
         if func.endswith("/getGatewayTouListV2"):
             return (await client._post(client.url_base + func, None, functions[func]))["result"]  # noqa: SLF001
         if func.startswith(("api-energy", "hes-gateway")):
