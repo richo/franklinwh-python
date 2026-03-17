@@ -324,7 +324,7 @@ class WorkMode(Id):
     VPP_MODE = ("VPP Mode", 9)
 
 
-class Mode:
+class Mode(dict[str, Any]):
     """Represents an operating mode for the FranklinWH gateway.
 
     Provides static methods to create specific modes (time of use, emergency backup, self consumption)
@@ -342,7 +342,7 @@ class Mode:
         Generate the payload dictionary for API requests.
     """
 
-    _modes: dict[int, Any] = {
+    _modes: dict[int, dict[str, Any]] = {
         mode.id: {  # compatible with result of getGatewayTouListV2
             "id": mode.id,
             "oldIndex": 3,
@@ -363,7 +363,7 @@ class Mode:
 
     @classmethod
     @time_cached(timedelta(hours=1))  # eventually consistent with changes via app
-    async def get_modes(cls, client: Client) -> dict[int, Any]:
+    async def get_modes(cls, client: Client) -> dict[int, dict[str, Any]]:
         """Get the available modes for the FranklinWH gateway.
 
         MUST be called once before using other methods, e.g., through get_mode().
@@ -388,12 +388,12 @@ class Mode:
         return cls._modes
 
     @classmethod
-    def time_of_use(cls, soc: int | None = None) -> Mode:
+    def time_of_use(cls, soc: float | None = None) -> Mode:
         """Create a time of use mode instance.
 
         Parameters
         ----------
-        soc : int, optional
+        soc : float, optional
             The state of charge value for the mode, defaults to 20.
 
         Returns:
@@ -406,12 +406,12 @@ class Mode:
         return Mode(WorkMode.TIME_OF_USE.id, soc)
 
     @classmethod
-    def emergency_backup(cls, soc: int | None = None) -> Mode:
+    def emergency_backup(cls, soc: float | None = None) -> Mode:
         """Create an emergency backup mode instance.
 
         Parameters
         ----------
-        soc : int, optional
+        soc : float, optional
             The state of charge value for the mode, defaults to 100.
 
         Returns:
@@ -424,12 +424,12 @@ class Mode:
         return Mode(WorkMode.EMERGENCY_BACKUP.id, soc)
 
     @classmethod
-    def self_consumption(cls, soc: int | None = None) -> Mode:
+    def self_consumption(cls, soc: float | None = None) -> Mode:
         """Create a self consumption mode instance.
 
         Parameters
         ----------
-        soc : int, optional
+        soc : float, optional
             The state of charge value for the mode, defaults to 20.
 
         Returns:
@@ -442,7 +442,7 @@ class Mode:
         return Mode(WorkMode.SELF_CONSUMPTION.value, soc)
 
     @classmethod
-    def vpp_mode(cls, _: int | None = None) -> Mode:
+    def vpp_mode(cls, _: float | None = None) -> Mode:
         """Create a virtual power plant mode instance.
 
         Returns:
@@ -476,18 +476,22 @@ class Mode:
                 return Mode(mode.id, cls._modes[mode.id].get("soc"))
         raise ValueError(f"Unknown mode name: {name}")
 
-    def __init__(self, workMode: int, soc: int) -> None:
-        """Initialize a Mode instance with the given state of charge.
+    def __init__(self, *args, **kwargs) -> None:
+        """Initialize a Mode instance with the specified work mode and state of charge.
 
         Parameters
         ----------
-        soc : int
+        workMode : int
+            The work mode id for the FranklinWH gateway.
+        soc : float | None
             The state of charge value for the mode.
         """
-        self.workMode = workMode
-        self.soc = soc
-        mode = self._modes[workMode]
-        self.name = WorkMode.from_id(workMode).value
+        super().__init__()
+        self.__dict__ = self
+        self.workMode = kwargs.get("workMode") or args[0]
+        self.soc = float(kwargs.get("soc") or args[1])
+        mode = self._modes[self.workMode]
+        self.name = WorkMode.from_id(self.workMode).value
         self.currendId = mode["id"]
         self.oldIndex = mode["oldIndex"]
 
@@ -868,7 +872,7 @@ class Client(HttpClientFactory):
             status["runtimeData"]["mode"],
             ISSUES_URL,
         )
-        return modes[status["currentWorkMode"]]
+        return Mode(**modes[status["currentWorkMode"]])
 
     async def set_backup_reserve(self, soc: int) -> None:
         """Set the backup reserve for the FranklinWH gateway.
