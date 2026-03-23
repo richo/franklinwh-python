@@ -785,6 +785,73 @@ class Client(HttpClientFactory):
         }
         await self._post(url, json.dumps(payload))
 
+    async def get_export_settings(self) -> ExportSettings:
+        """Get the current grid export mode and power limit.
+    
+        Returns:
+        -------
+        ExportSettings
+            The active export mode and optional kW cap.
+        """
+        url = self.url_base + "hes-gateway/terminal/tou/getPowerControlSetting"
+        result = (await self._get(url))["result"]
+        mode = ExportMode.from_flag(result["gridFeedMaxFlag"])
+        feed_max = result.get("gridFeedMax", -1.0)
+        limit_kw = None if feed_max < 0 else feed_max
+        return ExportSettings(mode=mode, limit_kw=limit_kw)
+    
+    async def set_export_settings(
+        self, mode: ExportMode, limit_kw: float | None = None
+    ) -> None:
+        """Set the grid export mode and optional power limit.
+    
+        Uses a read-modify-write pattern: the setPowerControlV2 endpoint
+        requires all existing settings to be echoed back alongside the
+        fields being changed.
+    
+        Parameters
+        ----------
+        mode : ExportMode
+            The desired export mode.
+        limit_kw : float | None, optional
+            Export power cap in kW (0.1–10000.0). None means unlimited.
+            Ignored when mode is NO_EXPORT.
+        """
+        get_url = self.url_base + "hes-gateway/terminal/tou/getPowerControlSetting"
+        set_url = self.url_base + "hes-gateway/terminal/tou/setPowerControlV2"
+    
+        # Read current settings — endpoint requires all fields posted back
+        current = (await self._get(get_url))["result"]
+    
+        if mode == ExportMode.NO_EXPORT:
+            feed_max = 0.0
+            discharge_max = 0.0
+        elif mode == ExportMode.SOLAR_AND_APOWER:
+            feed_max = -1.0 if limit_kw is None else float(limit_kw)
+            discharge_max = -1.0
+        else:  # SOLAR_ONLY
+            feed_max = -1.0 if limit_kw is None else float(limit_kw)
+            discharge_max = 0.0
+    
+        payload = {k: v for k, v in current.items() if v is not None}
+        payload.update({
+            "gatewayId": self.gateway,
+            "lang": "EN_US",
+            "gridFeedMaxFlag": mode.value,
+            "gridFeedMax": feed_max,
+            "globalGridDischargeMax": discharge_max,
+        })
+    
+        res = await self.session.post(
+            set_url,
+            headers={"loginToken": self.token, "Content-Type": "application/json"},
+            data=json.dumps(payload),
+        )
+        res.raise_for_status()
+        body = res.json()
+        if body.get("code") != 200:
+            raise RuntimeError(f"set_export_settings failed: {body}")
+    
     async def get_composite_info(self):
         """Get composite information about the FranklinWH gateway."""
         url = self.url_base + "hes-gateway/terminal/getDeviceCompositeInfo"
