@@ -24,4 +24,6 @@ __all__ = [
     "Stats",
     "SwitchState",
     "TokenFetcher",
+    "ExportMode",
+    "ExportSettings",
 ]
