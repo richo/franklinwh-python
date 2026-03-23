@@ -129,6 +129,52 @@ class GridStatus(Enum):
                 raise ValueError(f"Unknown offgridreason value: {value}")
 
 
+class ExportMode(Enum):
+    """Represents the grid export mode for the FranklinWH gateway.
+
+    Attributes:
+        SOLAR_ONLY (int): Solar can export to the grid; battery (aPower) cannot.
+        SOLAR_AND_APOWER (int): Both solar and battery can export to the grid.
+        NO_EXPORT (int): No grid export permitted.
+    """
+
+    SOLAR_ONLY = 1
+    SOLAR_AND_APOWER = 2
+    NO_EXPORT = 3
+
+    @staticmethod
+    def from_flag(value: int) -> ExportMode:
+        """Convert a gridFeedMaxFlag API value to an ExportMode.
+
+        Parameters
+        ----------
+        value : int
+            The gridFeedMaxFlag value from the API response.
+
+        Returns:
+        -------
+        ExportMode
+            The corresponding ExportMode.
+        """
+        try:
+            return ExportMode(value)
+        except ValueError:
+            return ExportMode.SOLAR_ONLY
+
+
+@dataclass
+class ExportSettings:
+    """Current grid export configuration for the FranklinWH gateway.
+
+    Attributes:
+        mode: The active export mode.
+        limit_kw: Export power cap in kW, or None if unlimited.
+    """
+
+    mode: ExportMode
+    limit_kw: float | None
+
+
 @dataclass
 class Current:
     """Current statistics for FranklinWH gateway."""
