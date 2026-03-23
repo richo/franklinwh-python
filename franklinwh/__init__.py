@@ -5,6 +5,8 @@ from .caching_thread import CachingThread
 from .client import (
     AccessoryType,
     Client,
+    ExportMode,
+    ExportSettings,
     GridStatus,
     HttpClientFactory,
     Mode,
@@ -18,12 +20,12 @@ __all__ = [
     "AccessoryType",
     "CachingThread",
     "Client",
+    "ExportMode",
+    "ExportSettings",
     "GridStatus",
     "HttpClientFactory",
     "Mode",
     "Stats",
     "SwitchState",
     "TokenFetcher",
-    "ExportMode",
-    "ExportSettings",
 ]
