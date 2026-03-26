@@ -5,9 +5,9 @@ and retrieve statistics from FranklinWH energy gateway devices.
 """
 
 from __future__ import annotations
-from collections.abc import Callable
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -441,9 +441,9 @@ class TokenFetcher(HttpClientFactory):
         return self.info["token"]
 
     @staticmethod
-    async def login(username: str, password: str):
+    async def login(username: str, password: str) -> str:
         """Log in to the FranklinWH API and retrieve an authentication token."""
-        await TokenFetcher(username, password).get_token()
+        return await TokenFetcher(username, password).get_token()
 
     async def fetch_token(self) -> dict:
         """Log in to the FranklinWH API and retrieve account information."""
