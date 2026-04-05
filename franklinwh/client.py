@@ -17,6 +17,7 @@ import json
 import logging
 import time
 from typing import Any
+from warnings import deprecated, warn
 import zlib
 
 import httpx
@@ -190,9 +191,9 @@ class Current:
     grid_use: float
     home_load: float
     battery_soc: float
-    switch_1_load: float
-    switch_2_load: float
-    v2l_use: float
+    switch_1_load: float  # deprecated
+    switch_2_load: float  # deprecated
+    v2l_use: float  # deprecated
     grid_status: GridStatus
 
 
@@ -207,10 +208,10 @@ class Totals:
     solar: float
     generator: float
     home_use: float
-    switch_1_use: float
-    switch_2_use: float
-    v2l_export: float
-    v2l_import: float
+    switch_1_use: float  # deprecated
+    switch_2_use: float  # deprecated
+    v2l_export: float  # deprecated
+    v2l_import: float  # deprecated
 
 
 @dataclass
@@ -352,6 +353,7 @@ class Mode:
         }
 
 
+@deprecated("use SmartCircuits instead")
 class SwitchState(tuple[bool | None, bool | None, bool | None]):
     """Represents the state of the smart switches connected to the FranklinWH gateway.
 
@@ -711,6 +713,7 @@ class Client(HttpClientFactory):
         # {"code":200,"message":"Query success!","result":[],"success":true,"total":0}
         return (await self._get(url))["result"]
 
+    @deprecated("use get_smart_circuits() instead")
     async def get_smart_switch_state(self) -> SwitchState:
         """Get the current state of the smart switches."""
         # TODO(richo) This API is super in flux, both because of how vague the
@@ -722,6 +725,7 @@ class Client(HttpClientFactory):
         switches = [x == 1 for x in status["pro_load"]]
         return SwitchState(switches)
 
+    @deprecated("use set_circuit() instead")
     async def set_smart_switch_state(self, state: SwitchState):
         """Set the state of the smart circuits.
 
@@ -768,6 +772,7 @@ class Client(HttpClientFactory):
         return json.loads(data)
 
     # Sends a 311 which appears to be a more specific switch command
+    @deprecated("use get_smart_circuits() or get_smart_circuits_enhanced() instead")
     @time_cached()
     async def _switch_status(self):
         payload = self._build_payload(311, {"opt": 0, "order": self.gateway})
@@ -776,6 +781,7 @@ class Client(HttpClientFactory):
 
     # Sends a 353 which grabs real-time smart-circuit load information
     # https://github.com/richo/homeassistant-franklinwh/issues/27#issuecomment-2714422732
+    @deprecated("use get_smart_circuits_enhanced() instead")
     @time_cached()
     async def _switch_usage(self):
         payload = self._build_payload(353, {"opt": 0, "order": self.gateway})
@@ -814,6 +820,11 @@ class Client(HttpClientFactory):
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
+        warn(
+            "switch statistics are deprecated from get_stats(), use get_smart_circuits_enhanced() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         tasks = [f() for f in [self.get_composite_info, self._switch_usage]]
         info, sw_data = await asyncio.gather(*tasks)
         data = info["runtimeData"]
