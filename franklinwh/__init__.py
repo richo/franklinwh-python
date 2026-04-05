@@ -14,7 +14,7 @@ from .client import (
     Mode,
     SmartCircuits,
     Stats,
-    SwitchState,
+    SwitchState,  # deprecated
     TokenFetcher,
 )
 
@@ -32,6 +32,6 @@ __all__ = [
     "Mode",
     "SmartCircuits",
     "Stats",
-    "SwitchState",
+    "SwitchState",  # deprecated
     "TokenFetcher",
 ]
