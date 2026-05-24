@@ -182,7 +182,10 @@ class ModeInfo:
     Attributes:
         id: Installation-specific identifier for this mode entry.
         work_mode: Mode type integer (1=TOU, 2=Self-Consumption, 3=Emergency Backup).
-        name: Human-readable name as configured in the FranklinWH app.
+        name: User-defined tariff profile name as set in the FranklinWH app.
+            This is **not** a fixed mode label — it reflects whatever the user
+            named their electricity plan (e.g. "Peak/Off-Peak", "Flat Rate").
+            Use ``work_mode`` to identify the mode type reliably.
         soc: Battery reserve SOC percentage for this mode (returned as float by the API).
         edit_soc_flag: Whether the reserve SOC can be changed for this mode.
     """

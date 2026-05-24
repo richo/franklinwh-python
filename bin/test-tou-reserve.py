@@ -37,8 +37,9 @@ async def main(username: str, password: str, gateway: str) -> None:
     for m in settings.modes:
         active = " ← active" if m.id == settings.current_mode_id else ""
         editable = "editable" if m.edit_soc_flag else "read-only"
+        # name is the user's tariff profile label — installation-specific
         print(f"    workMode={m.work_mode}  id={m.id:6d}  soc={m.soc:5.1f}%"
-              f"  {editable:9s}  name={m.name!r}{active}")
+              f"  {editable:9s}  name={m.name!r} (user-defined){active}")
 
     # ── 2. get_mode() ────────────────────────────────────────────────────────
     print("\n── get_mode() ──────────────────────────────────────────────────")
