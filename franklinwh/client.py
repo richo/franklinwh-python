@@ -176,6 +176,51 @@ class ExportSettings:
 
 
 @dataclass
+class ModeInfo:
+    """Configuration for a single FranklinWH operating mode.
+
+    Attributes:
+        id: Installation-specific identifier for this mode entry.
+        work_mode: Mode type integer (1=TOU, 2=Self-Consumption, 3=Emergency Backup).
+        name: Human-readable name as configured in the FranklinWH app.
+        soc: Battery reserve SOC percentage for this mode.
+        edit_soc_flag: Whether the reserve SOC can be changed for this mode.
+    """
+
+    id: int
+    work_mode: int
+    name: str
+    soc: int
+    edit_soc_flag: bool
+
+
+@dataclass
+class ModeSettings:
+    """All operating mode configurations and the currently active mode.
+
+    Attributes:
+        modes: List of all available operating modes.
+        current_mode_id: Installation-specific id of the currently active mode.
+    """
+
+    modes: list[ModeInfo]
+    current_mode_id: int | None
+
+    @property
+    def reserves(self) -> dict[int, int]:
+        """Return a mapping of workMode integer to configured reserve SOC."""
+        return {mode.work_mode: mode.soc for mode in self.modes}
+
+    @property
+    def current_work_mode(self) -> int | None:
+        """Return the workMode integer of the currently active mode."""
+        for mode in self.modes:
+            if mode.id == self.current_mode_id:
+                return mode.work_mode
+        return None
+
+
+@dataclass
 class Current:
     """Current statistics for FranklinWH gateway."""
 
@@ -225,6 +270,14 @@ MODE_MAP = {
     9322: MODE_TIME_OF_USE,
     9323: MODE_SELF_CONSUMPTION,
     9324: MODE_EMERGENCY_BACKUP,
+}
+
+# Maps the workMode integer from getGatewayTouListV2 / getDeviceCompositeInfo
+# to the MODE_* constants above.  Uses the same encoding as Mode.workMode.
+WORK_MODE_MAP = {
+    1: MODE_TIME_OF_USE,
+    2: MODE_SELF_CONSUMPTION,
+    3: MODE_EMERGENCY_BACKUP,
 }
 
 
@@ -682,17 +735,26 @@ class Client(HttpClientFactory):
         await self._post_form(url, payload)
 
     async def get_mode(self):
-        """Get the current operating mode of the FranklinWH gateway."""
-        status = await self._switch_status()
-        # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
-        mode_name = MODE_MAP[status["runingMode"]]
-        if mode_name == MODE_TIME_OF_USE:
-            return (mode_name, status["touMinSoc"])
-        if mode_name == MODE_SELF_CONSUMPTION:
-            return (mode_name, status["selfMinSoc"])
-        if mode_name == MODE_EMERGENCY_BACKUP:
-            return (mode_name, status["backupMaxSoc"])
-        raise RuntimeError(f"Unknown mode {status['runingMode']}")
+        """Get the current operating mode of the FranklinWH gateway.
+
+        Returns
+        -------
+        tuple[str, int]
+            A ``(mode_name, soc)`` pair where ``mode_name`` is one of the
+            ``MODE_*`` constants and ``soc`` is the battery reserve percentage
+            currently configured for that mode.
+        """
+        settings = await self.get_mode_settings()
+        work_mode = settings.current_work_mode
+        if work_mode is None:
+            raise InvalidDataException("Could not determine current work mode from gateway")
+        mode_name = WORK_MODE_MAP.get(work_mode)
+        if mode_name is None:
+            raise InvalidDataException(f"Unknown workMode: {work_mode!r}")
+        soc = settings.reserves.get(work_mode)
+        if soc is None:
+            raise InvalidDataException(f"Active workMode {work_mode} has no reserve SOC in mode list")
+        return (mode_name, soc)
 
     async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.
@@ -864,6 +926,92 @@ class Client(HttpClientFactory):
         url = self.url_base + "hes-gateway/terminal/getDeviceCompositeInfo"
         params = {"refreshFlag": 1}
         return (await self._get(url, params))["result"]
+
+    async def set_mode_reserve(self, work_mode: int, soc: int) -> None:
+        """Set the battery reserve SOC for an operating mode without switching to it.
+
+        Calls ``POST /hes-gateway/terminal/tou/updateSocV2``.
+
+        This is different from ``set_mode()`` — it only updates the stored
+        reserve percentage for the given mode; the currently active mode is
+        **not** changed.
+
+        Parameters
+        ----------
+        work_mode : int
+            The mode whose reserve to update.  Must be one of the keys in
+            ``WORK_MODE_MAP`` (1=TOU, 2=Self-Consumption, 3=Emergency Backup).
+        soc : int
+            New battery reserve percentage (0–100).  Note that Emergency
+            Backup has ``editSocFlag = false`` in ``get_mode_settings()``; the
+            server will reject writes to that mode.
+
+        Raises
+        ------
+        ValueError
+            If ``work_mode`` is not a recognised mode integer or ``soc`` is
+            outside the range 0–100.
+        """
+        if work_mode not in WORK_MODE_MAP:
+            raise ValueError(
+                f"Invalid work_mode: {work_mode!r}. Must be one of {sorted(WORK_MODE_MAP)}"
+            )
+        if not 0 <= soc <= 100:
+            raise ValueError(f"Invalid soc: {soc!r}. Must be between 0 and 100.")
+
+        url = self.url_base + "hes-gateway/terminal/tou/updateSocV2"
+        result = await self._post(
+            url,
+            "",
+            params={
+                "workMode": str(work_mode),
+                "electricityType": "1",
+                "soc": str(soc),
+            },
+        )
+        if result.get("code") != 200:
+            raise InvalidDataException(f"set_mode_reserve failed: {result}")
+
+    async def get_mode_settings(self) -> ModeSettings:
+        """Fetch all operating modes and their configured battery reserve SOC.
+
+        Calls ``POST /hes-gateway/terminal/tou/getGatewayTouListV2`` and returns
+        a structured ``ModeSettings`` object describing all modes and the
+        currently active one.
+
+        The ``soc`` field on each ``ModeInfo`` is the battery reserve percentage
+        stored on the gateway for that mode — the minimum SOC the battery will
+        discharge to before drawing from the grid.
+
+        Returns
+        -------
+        ModeSettings
+            Dataclass containing a list of all ``ModeInfo`` entries and the
+            ``current_mode_id`` identifying the active mode.  Use the
+            ``current_work_mode`` and ``reserves`` properties for convenient
+            access to the most commonly needed values.
+
+        Raises
+        ------
+        InvalidDataException
+            If the API response cannot be parsed.
+        """
+        url = self.url_base + "hes-gateway/terminal/tou/getGatewayTouListV2"
+        try:
+            result = (await self._post(url, "", params={"showType": "1"}))["result"]
+            modes = [
+                ModeInfo(
+                    id=entry["id"],
+                    work_mode=entry["workMode"],
+                    name=entry["name"],
+                    soc=entry["soc"],
+                    edit_soc_flag=entry["editSocFlag"],
+                )
+                for entry in result["list"]
+            ]
+            return ModeSettings(modes=modes, current_mode_id=result["currendId"])
+        except (KeyError, TypeError) as e:
+            raise InvalidDataException(f"Could not parse mode settings response: {e}") from e
 
     async def set_generator(self, enabled: bool):
         """Enable or disable the generator on the FranklinWH gateway.
