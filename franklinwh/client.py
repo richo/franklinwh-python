@@ -183,14 +183,14 @@ class ModeInfo:
         id: Installation-specific identifier for this mode entry.
         work_mode: Mode type integer (1=TOU, 2=Self-Consumption, 3=Emergency Backup).
         name: Human-readable name as configured in the FranklinWH app.
-        soc: Battery reserve SOC percentage for this mode.
+        soc: Battery reserve SOC percentage for this mode (returned as float by the API).
         edit_soc_flag: Whether the reserve SOC can be changed for this mode.
     """
 
     id: int
     work_mode: int
     name: str
-    soc: int
+    soc: float
     edit_soc_flag: bool
 
 
@@ -207,7 +207,7 @@ class ModeSettings:
     current_mode_id: int | None
 
     @property
-    def reserves(self) -> dict[int, int]:
+    def reserves(self) -> dict[int, float]:
         """Return a mapping of workMode integer to configured reserve SOC."""
         return {mode.work_mode: mode.soc for mode in self.modes}
 
@@ -739,7 +739,7 @@ class Client(HttpClientFactory):
 
         Returns
         -------
-        tuple[str, int]
+        tuple[str, float]
             A ``(mode_name, soc)`` pair where ``mode_name`` is one of the
             ``MODE_*`` constants and ``soc`` is the battery reserve percentage
             currently configured for that mode.
