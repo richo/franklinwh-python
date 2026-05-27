@@ -406,6 +406,10 @@ class InvalidDataException(Exception):
     """raised when the API returns data that is structurally invalid"""
 
 
+class PermissionDeniedException(Exception):
+    """raised when the API returns code 181 (Operation without permission), typically when polling for an optional accessory (Smart Circuit, V2L) that is not provisioned on the account."""
+
+
 class HttpClientFactory:
     """Factory to create AsyncClient."""
 
@@ -773,6 +777,8 @@ class Client(HttpClientFactory):
             raise DeviceTimeoutException(res["message"])
         if res["code"] == 136:
             raise GatewayOfflineException(res["message"])
+        if res["code"] == 181:
+            raise PermissionDeniedException(res["message"])
         assert res["code"] == 200, f"{res['code']}: {res['message']}"
         return res
 
