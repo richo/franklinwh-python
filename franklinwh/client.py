@@ -5,20 +5,24 @@ and retrieve statistics from FranklinWH energy gateway devices.
 """
 
 from __future__ import annotations
-from collections.abc import Callable
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from enum import Enum
 import hashlib
 import json
 import logging
 import time
+from typing import Any
+from warnings import deprecated, warn
 import zlib
 
 import httpx
 
 from .api import DEFAULT_URL_BASE
+from .time_cached import time_cached
 
 
 class AccessoryType(Enum):
@@ -186,9 +190,9 @@ class Current:
     grid_use: float
     home_load: float
     battery_soc: float
-    switch_1_load: float
-    switch_2_load: float
-    v2l_use: float
+    switch_1_load: float  # deprecated
+    switch_2_load: float  # deprecated
+    v2l_use: float  # deprecated
     grid_status: GridStatus
 
 
@@ -203,10 +207,10 @@ class Totals:
     solar: float
     generator: float
     home_use: float
-    switch_1_use: float
-    switch_2_use: float
-    v2l_export: float
-    v2l_import: float
+    switch_1_use: float  # deprecated
+    switch_2_use: float  # deprecated
+    v2l_export: float  # deprecated
+    v2l_import: float  # deprecated
 
 
 @dataclass
@@ -348,6 +352,7 @@ class Mode:
         }
 
 
+@deprecated("use SmartCircuits instead")
 class SwitchState(tuple[bool | None, bool | None, bool | None]):
     """Represents the state of the smart switches connected to the FranklinWH gateway.
 
@@ -382,6 +387,113 @@ class SwitchState(tuple[bool | None, bool | None, bool | None]):
         return super().__new__(cls, lst)
 
 
+@dataclass
+class Circuit:
+    """Represents the basic state of a smart circuit."""
+
+    on: bool
+
+
+@dataclass
+class EnhancedCircuit(Circuit):
+    """Represents the enhanced state of a smart circuit.
+
+    Attributes:
+    ----------
+    name : str
+        The name of the circuit.
+    load : float
+        The current load value for the circuit.
+    export : float
+        The total export value for the circuit.
+    soc_threshold : float
+        The state of charge threshold for the circuit.
+    """
+
+    # these come from configuration
+    name: str
+    soc_threshold: int
+    """The state of charge threshold for the circuit."""
+    schedule: dict[str, Any]
+    # these come from status
+    power: float
+    """The current consumption in kW for the circuit."""
+    export_energy: float
+    """The total export energy in kWh for the circuit."""
+    import_energy: float
+    """The total import energy in kWh for the circuit."""
+
+
+class SmartCircuits:
+    """Represents the state of the SmartCircuits module.
+
+    Attributes:
+    ----------
+    merged : bool
+        Indicates whether Circuits 1 and 2 are merged.
+    circuits : list[Circuit | None]
+        A list of objects representing the state of each Circuit.
+        To avoid off-by-one issues, the 0th element of the list is unused and will always be None.
+        If merged, the second object will be None.
+        Depending on which API you call, these may be either Circuit or EnhancedCircuit objects.
+    """
+
+    @staticmethod
+    def is_merged(data: dict) -> bool:
+        """Determine if Circuits 1 and 2 are merged based on the provided data.
+
+        Parameters
+        ----------
+        data : dict
+            The data dictionary containing the "merge" key.
+
+        Returns:
+        -------
+        bool
+            True if Circuits 1 and 2 are merged, False otherwise.
+        """
+        return "merge" in data and data["merge"][0] == 1
+
+    @staticmethod
+    def openAction(_on: bool) -> int:
+        """Convert a boolean on/off value to the corresponding openAction integer.
+
+        Parameters
+        ----------
+        on : bool
+            True to turn the circuit on, False to turn it off.
+
+        Returns:
+        -------
+        int
+        """
+        return 2 if _on else 1
+
+    on = openAction(True)
+
+    def __init__(self, merged: bool, circuits: list[Circuit | None]) -> None:
+        """Initialize a SmartCircuits instance."""
+        self.merged = merged
+        match len(circuits):
+            case 3:
+                self.circuits = [None, *circuits]
+            case 4:
+                self.circuits = [None, *circuits[1:]]
+            case _:
+                raise ValueError("circuits must be a list of 3 or 4 elements")
+        # fix statistics
+        for c in self.circuits[1:]:
+            if isinstance(c, EnhancedCircuit):
+                if not c.on:
+                    c.power = 0.0
+        if merged:
+            if isinstance(self.circuits[2], EnhancedCircuit):
+                self.circuits[1].power += self.circuits[2].power
+                self.circuits[1].export_energy += self.circuits[2].export_energy
+                self.circuits[1].import_energy += self.circuits[2].import_energy
+            self.circuits[2] = None
+
+
 class TokenExpiredException(Exception):
     """raised when the token has expired to signal upstream that you need to create a new client or inject a new token."""
 
@@ -403,7 +515,7 @@ class GatewayOfflineException(Exception):
 
 
 class InvalidDataException(Exception):
-    """raised when the API returns data that is structurally invalid"""
+    """raised when the API returns data that is structurally invalid."""
 
 
 class PermissionDeniedException(Exception):
@@ -603,6 +715,7 @@ class Client(HttpClientFactory):
         # {"code":200,"message":"Query success!","result":[],"success":true,"total":0}
         return (await self._get(url))["result"]
 
+    @deprecated("use get_smart_circuits() instead")
     async def get_smart_switch_state(self) -> SwitchState:
         """Get the current state of the smart switches."""
         # TODO(richo) This API is super in flux, both because of how vague the
@@ -614,6 +727,7 @@ class Client(HttpClientFactory):
         switches = [x == 1 for x in status["pro_load"]]
         return SwitchState(switches)
 
+    @deprecated("use set_circuit() instead")
     async def set_smart_switch_state(self, state: SwitchState):
         """Set the state of the smart circuits.
 
@@ -653,12 +767,15 @@ class Client(HttpClientFactory):
         return json.loads(data)
 
     # Sends a 203 which is a high level status
+    @time_cached()
     async def _status(self):
         payload = self._build_payload(203, {"opt": 1, "refreshData": 1})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
         return json.loads(data)
 
     # Sends a 311 which appears to be a more specific switch command
+    @deprecated("use get_smart_circuits() or get_smart_circuits_enhanced() instead")
+    @time_cached()
     async def _switch_status(self):
         payload = self._build_payload(311, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -666,6 +783,8 @@ class Client(HttpClientFactory):
 
     # Sends a 353 which grabs real-time smart-circuit load information
     # https://github.com/richo/homeassistant-franklinwh/issues/27#issuecomment-2714422732
+    @deprecated("use get_smart_circuits_enhanced() instead")
+    @time_cached()
     async def _switch_usage(self):
         payload = self._build_payload(353, {"opt": 0, "order": self.gateway})
         data = (await self._mqtt_send(payload))["result"]["dataArea"]
@@ -703,6 +822,11 @@ class Client(HttpClientFactory):
 
         This includes instantaneous measurements for current power, as well as totals for today (in local time)
         """
+        warn(
+            "switch statistics are deprecated from get_stats(), use get_smart_circuits_enhanced() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         tasks = [f() for f in [self.get_composite_info, self._switch_usage]]
         info, sw_data = await asyncio.gather(*tasks)
         data = info["runtimeData"]
@@ -847,13 +971,15 @@ class Client(HttpClientFactory):
             discharge_max = 0.0
 
         payload = {k: v for k, v in current.items() if v is not None}
-        payload.update({
-            "gatewayId": self.gateway,
-            "lang": "EN_US",
-            "gridFeedMaxFlag": mode.value,
-            "gridFeedMax": feed_max,
-            "globalGridDischargeMax": discharge_max,
-        })
+        payload.update(
+            {
+                "gatewayId": self.gateway,
+                "lang": "EN_US",
+                "gridFeedMaxFlag": mode.value,
+                "gridFeedMax": feed_max,
+                "globalGridDischargeMax": discharge_max,
+            }
+        )
 
         res = await self.session.post(
             set_url,
@@ -865,6 +991,7 @@ class Client(HttpClientFactory):
         if body.get("code") != 200:
             raise RuntimeError(f"set_export_settings failed: {body}")
 
+    @time_cached()
     async def get_composite_info(self):
         """Get composite information about the FranklinWH gateway."""
         url = self.url_base + "hes-gateway/terminal/getDeviceCompositeInfo"
@@ -895,6 +1022,96 @@ class Client(HttpClientFactory):
         """
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/getHomeGatewayList"
         return (await self._get(url))["result"]
+
+    @time_cached(ttl=timedelta(seconds=5))
+    async def __387(self):
+        """Get SmartCircuits module configuration."""
+        payload = self._build_payload(387, {"opt": 0})
+        data = (await self._mqtt_send(payload))["result"]["dataArea"]
+        return json.loads(data)
+
+    @time_cached()
+    async def __389(self):
+        """Get SmartCircuits module status."""
+        payload = self._build_payload(389, {"opt": 0})
+        data = (await self._mqtt_send(payload))["result"]["dataArea"]
+        return json.loads(data)
+
+    async def get_smart_circuits(self, data: dict | None = None) -> SmartCircuits:
+        """Get the basic state of the SmartCircuits module."""
+        if data is None:
+            data = await self.__387()
+        circuits = [
+            Circuit(on=x["openAction"] == SmartCircuits.on) for x in data["smartSwitch"]
+        ]
+        return SmartCircuits(SmartCircuits.is_merged(data), circuits)
+
+    async def get_smart_circuits_enhanced(self) -> SmartCircuits:
+        """Get the enhanced state of the SmartCircuits module."""
+        tasks = [f() for f in [self.__387, self.__389]]
+        data, status = await asyncio.gather(*tasks)
+        circuits = [
+            EnhancedCircuit(
+                on=d["openAction"] == SmartCircuits.on,
+                name=d["name"],
+                soc_threshold=d["socThreshold"],
+                schedule=d["schedule"],
+                power=s["power"] / 1000.0,
+                export_energy=s["exportEnergy"] / 1000.0,
+                import_energy=s["importEnergy"] / 1000.0,
+            )
+            for d, s in zip(data["smartSwitch"], status["smartSwitchData"], strict=True)
+        ]
+        return SmartCircuits(SmartCircuits.is_merged(data), circuits)
+
+    async def set_circuit(self, circuit: int, on: bool) -> SmartCircuits:
+        """Set the state of a specific circuit on the SmartCircuits module.
+
+        When merged, Circuit 1 also affects Circuit 2.
+
+        Parameters
+        ----------
+        circuit : int
+            The circuit number to set (1,3) and (2) if not merged.
+        on : bool
+            True to turn the circuit on, False to turn it off.
+        """
+        data = await self.__387()
+        match circuit:
+            case 3:
+                pass
+            case 2:
+                if SmartCircuits.is_merged(data):
+                    raise ValueError("Circuit 2 cannot be set when merged")
+            case 1:
+                if SmartCircuits.is_merged(data):
+                    # if merged also set Circuit 2 the same way
+                    data["smartSwitch"][1]["openAction"] = SmartCircuits.openAction(on)
+            case _:
+                raise ValueError("Circuit must be 1-3")
+        data["smartSwitch"][circuit - 1]["openAction"] = SmartCircuits.openAction(on)
+        data["opt"] = 1
+        payload = self._build_payload(387, data)
+        return await self.get_smart_circuits(
+            json.loads((await self._mqtt_send(payload))["result"]["dataArea"])
+        )
+
+    async def set_smart_circuits_merged(self, merged: bool) -> SmartCircuits:
+        """Set whether Circuits 1 and 2 are merged and adjust Circuit 2 accordingly."""
+        data = await self.__387()
+        if not merged:
+            # separate
+            data["merge"] = [0, 0]
+        else:
+            # align Circuit 2 with Circuit 1
+            data["smartSwitch"][1]["openAction"] = data["smartSwitch"][0]["openAction"]
+            # and merge
+            data["merge"] = [1, 2]
+        data["opt"] = 1
+        payload = self._build_payload(387, data)
+        return await self.get_smart_circuits(
+            json.loads((await self._mqtt_send(payload))["result"]["dataArea"])
+        )
 
 
 class UnknownMethodsClient(Client):

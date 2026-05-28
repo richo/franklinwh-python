@@ -4,14 +4,17 @@ from .api import DEFAULT_URL_BASE
 from .caching_thread import CachingThread
 from .client import (
     AccessoryType,
+    Circuit,
     Client,
+    EnhancedCircuit,
     ExportMode,
     ExportSettings,
     GridStatus,
     HttpClientFactory,
     Mode,
+    SmartCircuits,
     Stats,
-    SwitchState,
+    SwitchState,  # deprecated
     TokenFetcher,
 )
 
@@ -19,13 +22,16 @@ __all__ = [
     "DEFAULT_URL_BASE",
     "AccessoryType",
     "CachingThread",
+    "Circuit",
     "Client",
+    "EnhancedCircuit",
     "ExportMode",
     "ExportSettings",
     "GridStatus",
     "HttpClientFactory",
     "Mode",
+    "SmartCircuits",
     "Stats",
-    "SwitchState",
+    "SwitchState",  # deprecated
     "TokenFetcher",
 ]
