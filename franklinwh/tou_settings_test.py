@@ -67,6 +67,10 @@ def test_old_index_differs_per_mode():
 
     The tou list ships oldIndex alongside each profile, and the values match the
     library's own set_mode() comments: TOU 3, self-consumption 2, backup 1.
+
+    Note the issue's reported symptom -- the app failing to display the mode -- did
+    not reproduce on V1.12.45 when wrong values were sent live. What did happen is
+    covered by test_gateway_accepts_unknown_profile_id below.
     """
     from .client import Mode
     assert Mode.time_of_use(soc=15).payload("G")["oldIndex"] == "3"
@@ -75,3 +79,18 @@ def test_old_index_differs_per_mode():
 
     by_work_mode = {m["workMode"]: m["oldIndex"] for m in TOU_LIST["result"]["list"]}
     assert by_work_mode == {1: 3, 2: 2, 3: 1}, "gateway agrees with the constants"
+
+
+def test_gateway_accepts_unknown_profile_id():
+    """A currendId absent from the tou list is stored anyway, breaking id lookup.
+
+    Sending the unpatched payload live (currendId=9322, which this account does not
+    have) left active_id at 9322 and get_mode() raising. The battery kept running the
+    requested workMode, so nothing visibly broke -- which is precisely why reading the
+    id from the gateway matters rather than trusting a constant.
+    """
+    res = TOU_LIST["result"]
+    ids = {m["id"] for m in res["list"]}
+    assert 9322 not in ids, "the constant is not a real profile on this account"
+    # after the bad write the gateway reported this as active; no entry can match it
+    assert not [m for m in res["list"] if m["id"] == 9322]
