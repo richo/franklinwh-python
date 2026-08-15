@@ -221,6 +221,13 @@ MODE_TIME_OF_USE = "time_of_use"
 MODE_SELF_CONSUMPTION = "self_consumption"
 MODE_EMERGENCY_BACKUP = "emergency_backup"
 
+# workMode is the stable enum; the profile *ids* alongside it are per-account.
+WORK_MODE_TO_NAME = {
+    1: MODE_TIME_OF_USE,
+    2: MODE_SELF_CONSUMPTION,
+    3: MODE_EMERGENCY_BACKUP,
+}
+
 MODE_MAP = {
     9322: MODE_TIME_OF_USE,
     9323: MODE_SELF_CONSUMPTION,
@@ -272,6 +279,7 @@ class Mode:
         mode = Mode(soc)
         mode.currendId = 9322
         mode.workMode = 1
+        mode.oldIndex = 3
         return mode
 
     @staticmethod
@@ -291,6 +299,7 @@ class Mode:
         mode = Mode(soc)
         mode.currendId = 9324
         mode.workMode = 3
+        mode.oldIndex = 1
         return mode
 
     @staticmethod
@@ -310,6 +319,7 @@ class Mode:
         mode = Mode(soc)
         mode.currendId = 9323
         mode.workMode = 2
+        mode.oldIndex = 2
         return mode
 
     def __init__(self, soc: int) -> None:
@@ -323,6 +333,12 @@ class Mode:
         self.soc = soc
         self.currendId = None
         self.workMode = None
+        # oldIndex differs per mode (issue #28); stromEn is the Storm Hedge toggle
+        # and must not be forced on (issue #8). Both default to None so that
+        # set_mode() can fill them from the gateway's own tou list, which is more
+        # robust than any constant: profile ids are per-account, not universal.
+        self.oldIndex = None
+        self.stromEn = None
 
     def payload(self, gateway) -> dict:
         """Generate the payload dictionary for API requests to set the gateway's operating mode.
@@ -341,9 +357,10 @@ class Mode:
             "currendId": str(self.currendId),
             "gatewayId": gateway,
             "lang": "EN_US",
-            "oldIndex": "1",  # Who knows if this matters
+            "oldIndex": str(self.oldIndex if self.oldIndex is not None else 1),
             "soc": str(self.soc),
-            "stromEn": "1",
+            # Preserve the user's Storm Hedge setting rather than enabling it.
+            "stromEn": str(self.stromEn if self.stromEn is not None else 1),
             "workMode": str(self.workMode),
         }
 
@@ -681,22 +698,49 @@ class Client(HttpClientFactory):
 
         # Self consumption
         # currendId=9323&gatewayId=___&lang=EN_US&oldIndex=2&soc=20&stromEn=1&workMode=2
+        settings = await self.get_tou_settings()
+        profile = settings["profiles"].get(mode.workMode)
+        if profile:
+            # Prefer the gateway's own values over the class constants: ids differ
+            # per account, and oldIndex ships alongside the profile that owns it.
+            mode.currendId = profile.get("id", mode.currendId)
+            if profile.get("oldIndex") is not None:
+                mode.oldIndex = profile["oldIndex"]
+        if mode.stromEn is None and settings["stromEn"] is not None:
+            mode.stromEn = settings["stromEn"]
+
         url = DEFAULT_URL_BASE + "hes-gateway/terminal/tou/updateTouMode"
         payload = mode.payload(self.gateway)
         await self._post_form(url, payload)
 
+    async def get_tou_settings(self):
+        """Fetch the gateway's tou profile list, the active profile, and stromEn.
+
+        This is the authoritative source for everything set_mode() needs to send:
+        the profile ids are per-account (not the 9322/9323/9324 constants), oldIndex
+        differs per mode, and stromEn is the user's Storm Hedge setting.
+        """
+        url = self.url_base + "hes-gateway/terminal/tou/getGatewayTouListV2"
+        res = (await self._post(url, None, {"showType": 1})).get("result") or {}
+        active = res.get("currendId")
+        profiles = {m.get("workMode"): m for m in res.get("list", [])}
+        return {"active_id": active, "profiles": profiles, "stromEn": res.get("stromEn")}
+
     async def get_mode(self):
-        """Get the current operating mode of the FranklinWH gateway."""
-        status = await self._switch_status()
-        # TODO(richo) These are actually wrong but I can't obviously find where to get the correct values right now.
-        mode_name = MODE_MAP[status["runingMode"]]
-        if mode_name == MODE_TIME_OF_USE:
-            return (mode_name, status["touMinSoc"])
-        if mode_name == MODE_SELF_CONSUMPTION:
-            return (mode_name, status["selfMinSoc"])
-        if mode_name == MODE_EMERGENCY_BACKUP:
-            return (mode_name, status["backupMaxSoc"])
-        raise RuntimeError(f"Unknown mode {status['runingMode']}")
+        """Get the current operating mode of the FranklinWH gateway.
+
+        Resolved from the tou list rather than a constant table: profile ids are
+        per-account, so mapping runingMode through MODE_MAP raises KeyError on any
+        gateway that does not happen to use 9322/9323/9324.
+        """
+        settings = await self.get_tou_settings()
+        for work_mode, profile in settings["profiles"].items():
+            if profile.get("id") == settings["active_id"]:
+                name = WORK_MODE_TO_NAME.get(work_mode)
+                if name is None:
+                    raise RuntimeError(f"Unknown workMode {work_mode}")
+                return (name, profile.get("soc"))
+        raise RuntimeError(f"Active profile {settings['active_id']} not in tou list")
 
     async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.
