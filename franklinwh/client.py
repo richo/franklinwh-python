@@ -210,6 +210,64 @@ class Totals:
 
 
 @dataclass
+class PowerSample:
+    """One 5-minute bucket from get_power_by_day().
+
+    Power is in kW, battery_soc in percent. ``kwh_total`` is the gateway's
+    running home-energy figure for the bucket (see PowerSample caveats in the
+    module docs -- it is not a daily cumulative counter).
+    """
+
+    ts: str
+    solar: float
+    grid: float
+    battery_discharge: float
+    battery_charge: float
+    generator: float
+    v2l: float
+    home: float
+    grid_import: float
+    grid_export: float
+    battery_soc: float
+    kwh_total: float
+    run_status: int
+
+
+@dataclass
+class PowerByDay:
+    """A day of 5-minute power buckets from getFhpPowerByDay.
+
+    ``samples`` is ordered by ``ts`` (gateway-local "YYYY-MM-DD HH:MM:SS").
+    The gateway only emits buckets once it has activity, so a day's first
+    samples can start after midnight and early ones carry the last reported
+    soc and a flat kwh_total.
+    """
+
+    day: str
+    samples: list[PowerSample]
+
+
+@dataclass
+class ElectricDaily:
+    """Daily energy totals (kWh) from getFhpElectricData type=1.
+
+    ``grid_import``/``grid_export`` cover the utility meter only; battery
+    charge/discharge are separate, matching the gateway's own accounting.
+    """
+
+    day: str
+    solar: float
+    generator: float
+    grid_import: float
+    grid_export: float
+    battery_charge: float
+    battery_discharge: float
+    home: float
+    v2l_export: float
+    v2l_import: float
+
+
+@dataclass
 class Stats:
     """Statistics for FranklinWH gateway."""
 
@@ -741,6 +799,86 @@ class Client(HttpClientFactory):
                     raise RuntimeError(f"Unknown workMode {work_mode}")
                 return (name, profile.get("soc"))
         raise RuntimeError(f"Active profile {settings['active_id']} not in tou list")
+
+    async def get_power_by_day(self, day: str) -> PowerByDay:
+        """Get one day of 5-minute power buckets from the cloud.
+
+        ``day`` is a "YYYY-MM-DD" in gateway-local time. The endpoint is the
+        same data the app's "Download my data" CSV export is based on.
+
+        Buckets are ordered by time. The gateway omits buckets before it has
+        any activity, so ``samples`` may be shorter than 288 and may not start
+        at midnight. ``kwh_total`` is the gateway's running home-energy
+        figure, not a daily cumulative counter: it can repeat, lag, and reset
+        at midnight (the last bucket of the day typically still carries the
+        previous day's final value), so it is not safe to treat as "energy
+        today". For day totals use :meth:`get_electric_daily`.
+        """
+        url = self.url_base + "api-energy/power/getFhpPowerByDay"
+        res = (await self._get(url, {"dayTime": day})).get("result") or {}
+        times = res.get("deviceTimeArray") or []
+        n = len(times)
+
+        def arr(key: str) -> list:
+            a = res.get(key) or []
+            return a + [None] * (n - len(a)) if len(a) < n else a
+
+        sh, sg, sf = arr("powerSolarHomeArray"), arr("powerSolarGirdArray"), arr("powerSolarFhpArray")
+        gh, gf = arr("powerGirdHomeArray"), arr("powerGirdFhpArray")
+        fh, fg = arr("powerFhpHomeArray"), arr("powerFhpGirdArray")
+        ghn, gfn = arr("powerGenHomeArray"), arr("powerGenFhpArray")
+        vhn, vfn = arr("powerV2lHomeArray"), arr("powerV2lFhpArray")
+        soc, kwh, run = arr("socArray"), arr("kwhTotalArray"), arr("runStatusArray")
+
+        def v(a: list, i: int) -> float:
+            return float(a[i]) if i < len(a) and a[i] is not None else 0.0
+
+        samples = [
+            PowerSample(
+                ts=t,
+                solar=v(sh, i) + v(sg, i) + v(sf, i),
+                grid=v(gh, i) + v(gf, i),
+                battery_discharge=v(fh, i) + v(fg, i),
+                battery_charge=v(sf, i) + v(gf, i),
+                generator=v(ghn, i) + v(gfn, i),
+                v2l=v(vhn, i) + v(vfn, i),
+                home=v(sh, i) + v(gh, i) + v(fh, i) + v(ghn, i) + v(vhn, i),
+                grid_import=v(gh, i) + v(gf, i),
+                grid_export=v(sg, i) + v(fg, i),
+                battery_soc=v(soc, i),
+                kwh_total=v(kwh, i),
+                run_status=int(run[i]) if i < len(run) and run[i] is not None else 0,
+            )
+            for i, t in enumerate(times)
+        ]
+        return PowerByDay(day=day, samples=samples)
+
+    async def get_electric_daily(self, day: str) -> ElectricDaily:
+        """Get one day of cumulative energy totals (kWh) from the cloud.
+
+        ``day`` is a "YYYY-MM-DD" in gateway-local time. This is the
+        authoritative source for "how much energy today"; the 5-minute
+        endpoint's kwhTotalArray is not (see get_power_by_day).
+        """
+        url = self.url_base + "api-energy/electric/getFhpElectricData"
+        res = (await self._get(url, {"type": 1, "dayTime": day})).get("result") or {}
+
+        def first(key: str) -> float:
+            a = res.get(key) or []
+            return float(a[0]) if a and a[0] is not None else 0.0
+
+        return ElectricDaily(
+            day=day,
+            solar=first("kwhSuArray"),
+            generator=first("kwhGenArray"),
+            grid_import=first("kwhUtiInArray"),
+            grid_export=first("kwhUtiOutArray"),
+            battery_charge=first("kwhFhpChgArray"),
+            battery_discharge=first("kwhFhpDiArray"),
+            home=first("kwhLoadArray"),
+            v2l_export=first("kwhV2lToHomeArray"),
+            v2l_import=first("kwhV2lToFhpArray"),
+        )
 
     async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.

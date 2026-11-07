@@ -22,6 +22,45 @@ Most scripts require email address, password, and probably gateway id (reference
 python3 bin/get_info.py $FRANKLINWH_EMAIL $FRANKLINWH_PASSWORD $FRANKLINWH_GATEWAY_ID
 ```
 
+## Historical data
+
+The cloud keeps more than the gateway does. Two endpoints expose it (no
+library wrapper yet -- see the open PR): `api-energy/power/getFhpPowerByDay`
+for 5-minute power curves, and `api-energy/electric/getFhpElectricData`
+for daily/weekly/monthly kWh totals. The app's "Download my data" CSV
+export is the power-by-day data in CSV form.
+
+```python
+import asyncio
+from datetime import date
+
+from franklinwh import Client, TokenFetcher
+
+async def main():
+    client = Client(TokenFetcher(EMAIL, PASSWORD), GATEWAY_ID)
+    await client.refresh_token()
+
+    day = date(2026, 11, 3)
+    power = await client.get_power_by_day(day.isoformat())
+    for s in power.samples:      # 5-minute buckets, gateway-local time
+        print(s.ts, f"solar={s.solar:.2f}kW home={s.home:.2f}kW soc={s.battery_soc:.1f}%")
+
+    totals = await client.get_electric_daily(day.isoformat())
+    print(f"solar={totals.solar} kWh imported={totals.grid_import} exported={totals.grid_export}")
+
+asyncio.run(main())
+```
+
+Notes from real data:
+
+- A day's `samples` may be shorter than 288: the gateway only emits 5-minute
+  buckets once it has activity, and they start at the first reading, not
+  midnight. Parse defensively.
+- `PowerSample.kwh_total` is a running gateway figure, **not** a daily
+  cumulative counter: it repeats across hours, lags changes, and the last
+  bucket of a day still carries the previous day's final value. For day
+  totals use `get_electric_daily()`.
+
 ## Development
 
 The [Makefile](./Makefile) has a target to assist development and eventual release:
