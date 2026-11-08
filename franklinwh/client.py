@@ -209,6 +209,22 @@ class Totals:
     v2l_import: float
 
 
+def _channel(res: dict, key: str, index: int) -> float:
+    """Read one channel value at *index* from a parallel-array API response.
+
+    Returns 0.0 when the key is absent, the array is too short, or the value
+    is None -- all of which the gateway produces when it has no data for a
+    channel or bucket.
+    """
+    arr = res.get(key)
+    if arr is None or index >= len(arr):
+        return 0.0
+    val = arr[index]
+    if val is None:
+        return 0.0
+    return float(val)
+
+
 @dataclass
 class PowerSample:
     """One 5-minute bucket from get_power_by_day().
@@ -817,40 +833,38 @@ class Client(HttpClientFactory):
         url = self.url_base + "api-energy/power/getFhpPowerByDay"
         res = (await self._get(url, {"dayTime": day})).get("result") or {}
         times = res.get("deviceTimeArray") or []
-        n = len(times)
 
-        def arr(key: str) -> list:
-            a = res.get(key) or []
-            return a + [None] * (n - len(a)) if len(a) < n else a
-
-        sh, sg, sf = arr("powerSolarHomeArray"), arr("powerSolarGirdArray"), arr("powerSolarFhpArray")
-        gh, gf = arr("powerGirdHomeArray"), arr("powerGirdFhpArray")
-        fh, fg = arr("powerFhpHomeArray"), arr("powerFhpGirdArray")
-        ghn, gfn = arr("powerGenHomeArray"), arr("powerGenFhpArray")
-        vhn, vfn = arr("powerV2lHomeArray"), arr("powerV2lFhpArray")
-        soc, kwh, run = arr("socArray"), arr("kwhTotalArray"), arr("runStatusArray")
-
-        def v(a: list, i: int) -> float:
-            return float(a[i]) if i < len(a) and a[i] is not None else 0.0
-
-        samples = [
-            PowerSample(
-                ts=t,
-                solar=v(sh, i) + v(sg, i) + v(sf, i),
-                grid=v(gh, i) + v(gf, i),
-                battery_discharge=v(fh, i) + v(fg, i),
-                battery_charge=v(sf, i) + v(gf, i),
-                generator=v(ghn, i) + v(gfn, i),
-                v2l=v(vhn, i) + v(vfn, i),
-                home=v(sh, i) + v(gh, i) + v(fh, i) + v(ghn, i) + v(vhn, i),
-                grid_import=v(gh, i) + v(gf, i),
-                grid_export=v(sg, i) + v(fg, i),
-                battery_soc=v(soc, i),
-                kwh_total=v(kwh, i),
-                run_status=int(run[i]) if i < len(run) and run[i] is not None else 0,
-            )
-            for i, t in enumerate(times)
-        ]
+        # The API uses a mix of "Gird" (their typo for Grid) and "Su" (Solar).
+        samples: list[PowerSample] = []
+        for i, ts in enumerate(times):
+            samples.append(PowerSample(
+                ts=ts,
+                solar=(_channel(res, "powerSolarHomeArray", i)
+                       + _channel(res, "powerSolarGirdArray", i)
+                       + _channel(res, "powerSolarFhpArray", i)),
+                grid=(_channel(res, "powerGirdHomeArray", i)
+                      + _channel(res, "powerGirdFhpArray", i)),
+                battery_discharge=(_channel(res, "powerFhpHomeArray", i)
+                                   + _channel(res, "powerFhpGirdArray", i)),
+                battery_charge=(_channel(res, "powerSolarFhpArray", i)
+                                + _channel(res, "powerGirdFhpArray", i)),
+                generator=(_channel(res, "powerGenHomeArray", i)
+                           + _channel(res, "powerGenFhpArray", i)),
+                v2l=(_channel(res, "powerV2lHomeArray", i)
+                     + _channel(res, "powerV2lFhpArray", i)),
+                home=(_channel(res, "powerSolarHomeArray", i)
+                      + _channel(res, "powerGirdHomeArray", i)
+                      + _channel(res, "powerFhpHomeArray", i)
+                      + _channel(res, "powerGenHomeArray", i)
+                      + _channel(res, "powerV2lHomeArray", i)),
+                grid_import=(_channel(res, "powerGirdHomeArray", i)
+                             + _channel(res, "powerGirdFhpArray", i)),
+                grid_export=(_channel(res, "powerSolarGirdArray", i)
+                             + _channel(res, "powerFhpGirdArray", i)),
+                battery_soc=_channel(res, "socArray", i),
+                kwh_total=_channel(res, "kwhTotalArray", i),
+                run_status=_channel(res, "runStatusArray", i),
+            ))
         return PowerByDay(day=day, samples=samples)
 
     async def get_electric_daily(self, day: str) -> ElectricDaily:
@@ -863,21 +877,24 @@ class Client(HttpClientFactory):
         url = self.url_base + "api-energy/electric/getFhpElectricData"
         res = (await self._get(url, {"type": 1, "dayTime": day})).get("result") or {}
 
-        def first(key: str) -> float:
-            a = res.get(key) or []
-            return float(a[0]) if a and a[0] is not None else 0.0
+        def daily_total(key: str) -> float:
+            """Read the first (and only) value from a single-element array."""
+            arr = res.get(key)
+            if not arr or arr[0] is None:
+                return 0.0
+            return float(arr[0])
 
         return ElectricDaily(
             day=day,
-            solar=first("kwhSuArray"),
-            generator=first("kwhGenArray"),
-            grid_import=first("kwhUtiInArray"),
-            grid_export=first("kwhUtiOutArray"),
-            battery_charge=first("kwhFhpChgArray"),
-            battery_discharge=first("kwhFhpDiArray"),
-            home=first("kwhLoadArray"),
-            v2l_export=first("kwhV2lToHomeArray"),
-            v2l_import=first("kwhV2lToFhpArray"),
+            solar=daily_total("kwhSuArray"),
+            generator=daily_total("kwhGenArray"),
+            grid_import=daily_total("kwhUtiInArray"),
+            grid_export=daily_total("kwhUtiOutArray"),
+            battery_charge=daily_total("kwhFhpChgArray"),
+            battery_discharge=daily_total("kwhFhpDiArray"),
+            home=daily_total("kwhLoadArray"),
+            v2l_export=daily_total("kwhV2lToHomeArray"),
+            v2l_import=daily_total("kwhV2lToFhpArray"),
         )
 
     async def get_stats(self) -> Stats:
