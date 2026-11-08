@@ -227,11 +227,56 @@ def _channel(res: dict, key: str, index: int) -> float:
 
 @dataclass
 class PowerSample:
-    """One 5-minute bucket from get_power_by_day().
+    """One 5-minute bucket from ``get_power_by_day()``.
 
-    Power is in kW, battery_soc in percent. ``kwh_total`` is the gateway's
-    running home-energy figure for the bucket (see PowerSample caveats in the
-    module docs -- it is not a daily cumulative counter).
+    Power channels are instantaneous kW at the start of the 5-minute window.
+    ``battery_soc`` is percent (0–100).
+
+    Fields
+    ------
+    ts : str
+        Gateway-local timestamp, ``"YYYY-MM-DD HH:MM:SS"``. 288 buckets per
+        full day at 5-minute intervals (00:00, 00:05, … 23:55).
+    solar : float
+        Total solar production (kW) = ``powerSolarHomeArray`` +
+        ``powerSolarGirdArray`` + ``powerSolarFhpArray``. Energy leaving the
+        panels, split across home, grid (export), and battery (charge).
+    grid : float
+        Total grid exchange (kW) = ``powerGirdHomeArray`` +
+        ``powerGirdFhpArray``. Positive when importing. ("Gird" is the
+        API's spelling.)
+    battery_discharge : float
+        Battery discharge to home + grid (kW) = ``powerFhpHomeArray`` +
+        ``powerFhpGirdArray``.
+    battery_charge : float
+        Battery charging from solar + grid (kW) = ``powerSolarFhpArray`` +
+        ``powerGirdFhpArray``.
+    generator : float
+        Generator output (kW) = ``powerGenHomeArray`` +
+        ``powerGenFhpArray``.
+    v2l : float
+        Vehicle-to-load power (kW) = ``powerV2lHomeArray`` +
+        ``powerV2lFhpArray``.
+    home : float
+        Total home consumption (kW). Sum of all sources feeding the house:
+        solar→home + grid→home + battery→home + gen→home + v2l→home.
+    grid_import : float
+        Utility import (kW) = ``powerGirdHomeArray`` +
+        ``powerGirdFhpArray``. Same sum as ``grid`` but named for its
+        direction.
+    grid_export : float
+        Utility export (kW) = ``powerSolarGirdArray`` +
+        ``powerFhpGirdArray``. Solar + battery energy fed back to the grid.
+    battery_soc : float
+        State of charge, percent (0–100).
+    kwh_total : float
+        Gateway's running home-energy figure (kWh). **Not** a daily
+        cumulative: it repeats across hours, lags changes, and the last
+        bucket of a day still carries the previous day's final value. For
+        authoritative day totals use ``get_electric_daily()``.
+    run_status : int
+        Gateway run status code. 0 = normal. Non-zero codes indicate fault
+        or special states; the full table is undocumented by FranklinWH.
     """
 
     ts: str
@@ -265,10 +310,35 @@ class PowerByDay:
 
 @dataclass
 class ElectricDaily:
-    """Daily energy totals (kWh) from getFhpElectricData type=1.
+    """Daily energy totals (kWh) from ``get_electric_daily()``.
 
-    ``grid_import``/``grid_export`` cover the utility meter only; battery
-    charge/discharge are separate, matching the gateway's own accounting.
+    Authoritative source for "how much energy today". All fields are
+    cumulative kWh over the calendar day in gateway-local time.
+
+    Fields
+    ------
+    day : str
+        Calendar date, ``"YYYY-MM-DD"``, gateway-local time.
+    solar : float
+        Total solar production (kWh) from ``kwhSuArray``. ("Su" is the
+        API's abbreviation for solar.)
+    generator : float
+        Generator production (kWh) from ``kwhGenArray``.
+    grid_import : float
+        Utility import (kWh) from ``kwhUtiInArray``. ("Uti" = utility.)
+    grid_export : float
+        Utility export (kWh) from ``kwhUtiOutArray``.
+    battery_charge : float
+        Total battery charging (kWh) from ``kwhFhpChgArray``. ("Fhp" =
+        Franklin Home Power, i.e. the battery.)
+    battery_discharge : float
+        Total battery discharge (kWh) from ``kwhFhpDiArray``.
+    home : float
+        Total home consumption (kWh) from ``kwhLoadArray``.
+    v2l_export : float
+        Vehicle-to-home energy (kWh) from ``kwhV2lToHomeArray``.
+    v2l_import : float
+        Home-to-vehicle energy (kWh) from ``kwhV2lToFhpArray``.
     """
 
     day: str
