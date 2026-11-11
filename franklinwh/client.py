@@ -209,6 +209,150 @@ class Totals:
     v2l_import: float
 
 
+def _channel(res: dict, key: str, index: int) -> float:
+    """Read one channel value at *index* from a parallel-array API response.
+
+    Returns 0.0 when the key is absent, the array is too short, or the value
+    is None -- all of which the gateway produces when it has no data for a
+    channel or bucket.
+    """
+    arr = res.get(key)
+    if arr is None or index >= len(arr):
+        return 0.0
+    val = arr[index]
+    if val is None:
+        return 0.0
+    return float(val)
+
+
+@dataclass
+class PowerSample:
+    """One 5-minute bucket from ``get_power_by_day()``.
+
+    Power channels are instantaneous kW at the start of the 5-minute window.
+    ``battery_soc`` is percent (0–100).
+
+    Fields
+    ------
+    ts : str
+        Gateway-local timestamp, ``"YYYY-MM-DD HH:MM:SS"``. 288 buckets per
+        full day at 5-minute intervals (00:00, 00:05, … 23:55).
+    solar : float
+        Total solar production (kW) = ``powerSolarHomeArray`` +
+        ``powerSolarGirdArray`` + ``powerSolarFhpArray``. Energy leaving the
+        panels, split across home, grid (export), and battery (charge).
+    grid : float
+        Total grid exchange (kW) = ``powerGirdHomeArray`` +
+        ``powerGirdFhpArray``. Positive when importing. ("Gird" is the
+        API's spelling.)
+    battery_discharge : float
+        Battery discharge to home + grid (kW) = ``powerFhpHomeArray`` +
+        ``powerFhpGirdArray``.
+    battery_charge : float
+        Battery charging from solar + grid (kW) = ``powerSolarFhpArray`` +
+        ``powerGirdFhpArray``.
+    generator : float
+        Generator output (kW) = ``powerGenHomeArray`` +
+        ``powerGenFhpArray``.
+    v2l : float
+        Vehicle-to-load power (kW) = ``powerV2lHomeArray`` +
+        ``powerV2lFhpArray``.
+    home : float
+        Total home consumption (kW). Sum of all sources feeding the house:
+        solar→home + grid→home + battery→home + gen→home + v2l→home.
+    grid_import : float
+        Utility import (kW) = ``powerGirdHomeArray`` +
+        ``powerGirdFhpArray``. Same sum as ``grid`` but named for its
+        direction.
+    grid_export : float
+        Utility export (kW) = ``powerSolarGirdArray`` +
+        ``powerFhpGirdArray``. Solar + battery energy fed back to the grid.
+    battery_soc : float
+        State of charge, percent (0–100).
+    kwh_total : float
+        Gateway's running home-energy figure (kWh). **Not** a daily
+        cumulative: it repeats across hours, lags changes, and the last
+        bucket of a day still carries the previous day's final value. For
+        authoritative day totals use ``get_electric_daily()``.
+    run_status : int
+        Gateway run status code. 0 = normal. Non-zero codes indicate fault
+        or special states; the full table is undocumented by FranklinWH.
+    """
+
+    ts: str
+    solar: float
+    grid: float
+    battery_discharge: float
+    battery_charge: float
+    generator: float
+    v2l: float
+    home: float
+    grid_import: float
+    grid_export: float
+    battery_soc: float
+    kwh_total: float
+    run_status: int
+
+
+@dataclass
+class PowerByDay:
+    """A day of 5-minute power buckets from getFhpPowerByDay.
+
+    ``samples`` is ordered by ``ts`` (gateway-local "YYYY-MM-DD HH:MM:SS").
+    The gateway only emits buckets once it has activity, so a day's first
+    samples can start after midnight and early ones carry the last reported
+    soc and a flat kwh_total.
+    """
+
+    day: str
+    samples: list[PowerSample]
+
+
+@dataclass
+class ElectricDaily:
+    """Daily energy totals (kWh) from ``get_electric_daily()``.
+
+    Authoritative source for "how much energy today". All fields are
+    cumulative kWh over the calendar day in gateway-local time.
+
+    Fields
+    ------
+    day : str
+        Calendar date, ``"YYYY-MM-DD"``, gateway-local time.
+    solar : float
+        Total solar production (kWh) from ``kwhSuArray``. ("Su" is the
+        API's abbreviation for solar.)
+    generator : float
+        Generator production (kWh) from ``kwhGenArray``.
+    grid_import : float
+        Utility import (kWh) from ``kwhUtiInArray``. ("Uti" = utility.)
+    grid_export : float
+        Utility export (kWh) from ``kwhUtiOutArray``.
+    battery_charge : float
+        Total battery charging (kWh) from ``kwhFhpChgArray``. ("Fhp" =
+        Franklin Home Power, i.e. the battery.)
+    battery_discharge : float
+        Total battery discharge (kWh) from ``kwhFhpDiArray``.
+    home : float
+        Total home consumption (kWh) from ``kwhLoadArray``.
+    v2l_export : float
+        Vehicle-to-home energy (kWh) from ``kwhV2lToHomeArray``.
+    v2l_import : float
+        Home-to-vehicle energy (kWh) from ``kwhV2lToFhpArray``.
+    """
+
+    day: str
+    solar: float
+    generator: float
+    grid_import: float
+    grid_export: float
+    battery_charge: float
+    battery_discharge: float
+    home: float
+    v2l_export: float
+    v2l_import: float
+
+
 @dataclass
 class Stats:
     """Statistics for FranklinWH gateway."""
@@ -741,6 +885,87 @@ class Client(HttpClientFactory):
                     raise RuntimeError(f"Unknown workMode {work_mode}")
                 return (name, profile.get("soc"))
         raise RuntimeError(f"Active profile {settings['active_id']} not in tou list")
+
+    async def get_power_by_day(self, day: str) -> PowerByDay:
+        """Get one day of 5-minute power buckets from the cloud.
+
+        ``day`` is a "YYYY-MM-DD" in gateway-local time. The endpoint is the
+        same data the app's "Download my data" CSV export is based on.
+
+        Buckets are ordered by time. The gateway omits buckets before it has
+        any activity, so ``samples`` may be shorter than 288 and may not start
+        at midnight. ``kwh_total`` is the gateway's running home-energy
+        figure, not a daily cumulative counter: it can repeat, lag, and reset
+        at midnight (the last bucket of the day typically still carries the
+        previous day's final value), so it is not safe to treat as "energy
+        today". For day totals use :meth:`get_electric_daily`.
+        """
+        url = self.url_base + "api-energy/power/getFhpPowerByDay"
+        res = (await self._get(url, {"dayTime": day})).get("result") or {}
+        times = res.get("deviceTimeArray") or []
+
+        # The API uses a mix of "Gird" (their typo for Grid) and "Su" (Solar).
+        samples: list[PowerSample] = []
+        for i, ts in enumerate(times):
+            samples.append(PowerSample(
+                ts=ts,
+                solar=(_channel(res, "powerSolarHomeArray", i)
+                       + _channel(res, "powerSolarGirdArray", i)
+                       + _channel(res, "powerSolarFhpArray", i)),
+                grid=(_channel(res, "powerGirdHomeArray", i)
+                      + _channel(res, "powerGirdFhpArray", i)),
+                battery_discharge=(_channel(res, "powerFhpHomeArray", i)
+                                   + _channel(res, "powerFhpGirdArray", i)),
+                battery_charge=(_channel(res, "powerSolarFhpArray", i)
+                                + _channel(res, "powerGirdFhpArray", i)),
+                generator=(_channel(res, "powerGenHomeArray", i)
+                           + _channel(res, "powerGenFhpArray", i)),
+                v2l=(_channel(res, "powerV2lHomeArray", i)
+                     + _channel(res, "powerV2lFhpArray", i)),
+                home=(_channel(res, "powerSolarHomeArray", i)
+                      + _channel(res, "powerGirdHomeArray", i)
+                      + _channel(res, "powerFhpHomeArray", i)
+                      + _channel(res, "powerGenHomeArray", i)
+                      + _channel(res, "powerV2lHomeArray", i)),
+                grid_import=(_channel(res, "powerGirdHomeArray", i)
+                             + _channel(res, "powerGirdFhpArray", i)),
+                grid_export=(_channel(res, "powerSolarGirdArray", i)
+                             + _channel(res, "powerFhpGirdArray", i)),
+                battery_soc=_channel(res, "socArray", i),
+                kwh_total=_channel(res, "kwhTotalArray", i),
+                run_status=_channel(res, "runStatusArray", i),
+            ))
+        return PowerByDay(day=day, samples=samples)
+
+    async def get_electric_daily(self, day: str) -> ElectricDaily:
+        """Get one day of cumulative energy totals (kWh) from the cloud.
+
+        ``day`` is a "YYYY-MM-DD" in gateway-local time. This is the
+        authoritative source for "how much energy today"; the 5-minute
+        endpoint's kwhTotalArray is not (see get_power_by_day).
+        """
+        url = self.url_base + "api-energy/electric/getFhpElectricData"
+        res = (await self._get(url, {"type": 1, "dayTime": day})).get("result") or {}
+
+        def daily_total(key: str) -> float:
+            """Read the first (and only) value from a single-element array."""
+            arr = res.get(key)
+            if not arr or arr[0] is None:
+                return 0.0
+            return float(arr[0])
+
+        return ElectricDaily(
+            day=day,
+            solar=daily_total("kwhSuArray"),
+            generator=daily_total("kwhGenArray"),
+            grid_import=daily_total("kwhUtiInArray"),
+            grid_export=daily_total("kwhUtiOutArray"),
+            battery_charge=daily_total("kwhFhpChgArray"),
+            battery_discharge=daily_total("kwhFhpDiArray"),
+            home=daily_total("kwhLoadArray"),
+            v2l_export=daily_total("kwhV2lToHomeArray"),
+            v2l_import=daily_total("kwhV2lToFhpArray"),
+        )
 
     async def get_stats(self) -> Stats:
         """Get current statistics for the FHP.
